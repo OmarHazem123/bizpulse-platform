@@ -47,7 +47,7 @@ Findings and decisions made during the build:
 
 ## Phase 2: Analytics & ML ✅
 
-Gate: `tasks.py check` green, with 205 tests passing plus 1 documented `xfail`, in about 90 s.
+Gate: `tasks.py check` green, with 211 tests passing (no `xfail`) in about 95 s.
 
 Measured on the full-scale demo data (backtests: 6 × 30-day `TimeSeriesSplit` folds):
 
@@ -61,16 +61,11 @@ Findings and decisions:
 
 - **Pre-registered forecast criteria passed on the first run.** No tuning was done.
   The intervals are slightly narrow (about 72–74 % vs. the nominal 80 %).
-- **The anomaly rule needed amendment A1.** The pre-registered ratio scoring missed every
-  drop. The adopted two-tailed rule reaches 6 of 7 daily anomalies, and all three runs
-  are recorded in TECHNICAL-REQUIREMENTS §7.1. Root causes rank the manifest slice first.
-  `riverside_closure` remains a known miss: per-segment monitoring is future work.
-  The pre-registered recall criterion is therefore **not met**. Severity agreement with
-  the manifest is 2/6. Severity is retrospective, because IsolationForest is fit on
-  the whole period.
-- **Open:** subscription billing calendars produce false alarms. 79 of 126 saas daily
-  alerts fall on days 29–31 or day 1. Fixed `contamination=0.02` in IsolationForest can
-  upgrade marginal z-flags to CRITICAL on quiet data.
+- **The anomaly rule needed two post-hoc amendments, both accepted by the user.**
+  A1 adds two-tailed scoring. A2 adds weekly saas monitoring, an expanding-window
+  IsolationForest so severities are immutable, CRITICAL calibration, and per-store and
+  per-channel slice monitoring. Recall: 4/7 pre-registered, 6/7 with A1, **7/7 with A2**.
+  Severity agreement is 3/7. The full record is in TECHNICAL-REQUIREMENTS §7.1.
 - **The what-if baseline reproduces trailing actuals exactly**, and zero levers give the
   baseline exactly. retail_fb carries anonymous guest revenue (~59 %) as its own stream.
 - **Time of day:** retail_fb peaks at 8:00 and 13:00 local time (Europe/Berlin), while the

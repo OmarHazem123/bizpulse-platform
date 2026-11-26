@@ -17,7 +17,7 @@ from bizpulse.analytics.rfm import rfm_table
 from bizpulse.analytics.timeofday import peak_hours
 from bizpulse.config import Settings
 from bizpulse.demo.generator import generate_demo_data
-from bizpulse.ml.anomaly import AnomalyReport, detect_anomalies
+from bizpulse.ml.anomaly import AnomalyReport, detect_anomalies, granularity_for
 from bizpulse.ml.forecasting import ForecastResult, daily_revenue, forecast_series
 from bizpulse.ml.whatif import Levers, compute_baseline, project
 from bizpulse.pipeline import run_demo_pipelines
@@ -53,7 +53,8 @@ def _forecast(dataset: str) -> ForecastResult:
 
 @cache
 def _anomalies(dataset: str) -> AnomalyReport:
-    return detect_anomalies(_load(dataset)[1])
+    info, tx = _load(dataset)
+    return detect_anomalies(tx, granularity_for(info.domain))
 
 
 def _manifest(dataset: str) -> dict[str, Any]:
@@ -86,15 +87,7 @@ DAILY_ANOMALIES = [
     ("ecommerce", "social_viral_spike"),
     ("ecommerce", "apparel_refund_spike"),
     ("saas", "enterprise_deal"),
-    pytest.param(
-        "retail_fb",
-        "riverside_closure",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="known limitation: one of three stores closing moves the TOTAL only "
-            "~-30% (z ~ -2); needs per-segment monitoring (TECHNICAL-REQUIREMENTS §7.1)",
-        ),
-    ),
+    ("retail_fb", "riverside_closure"),  # caught by per-store slice monitoring (A2)
     ("retail_fb", "pos_outage"),
     ("retail_fb", "bogo_cold_drinks"),
 ]
@@ -114,14 +107,25 @@ def test_daily_anomaly_recall_and_root_cause(dataset: str, name: str) -> None:
     assert anomaly["granularity"] == "day"
     assert alerts, f"no {anomaly['metric']} alert inside {anomaly['start']}..{anomaly['end']}"
     for dimension, expected in (anomaly["slice"] or {}).items():
-        top = alerts[0].top_cause(dimension)
-        assert top is not None and top.value.lower() == expected.lower(), dimension
+        sliced = any(a.scope == f"{dimension}={expected}" for a in alerts)
+        totals = [a for a in alerts if a.scope == "total"]
+        top = totals[0].top_cause(dimension) if totals else None
+        ranked = top is not None and top.value.lower() == expected.lower()
+        assert sliced or ranked, dimension
 
 
 def test_checkout_outage_is_critical() -> None:
     _, alerts = _window_alerts("ecommerce", "checkout_outage")
-    assert alerts and all(a.severity == "CRITICAL" for a in alerts)
-    assert len(alerts) == 3  # one per outage day
+    totals = [a for a in alerts if a.scope == "total"]
+    assert len(totals) == 3  # one per outage day
+    assert all(a.severity == "CRITICAL" for a in totals)
+
+
+def test_saas_is_monitored_weekly_without_billing_calendar_noise() -> None:
+    report = _anomalies("saas")
+    assert report.granularity == "W"
+    assert all(a.date.dayofweek == 0 for a in report.alerts)
+    assert len([a for a in report.alerts if a.scope == "total"]) <= 30
 
 
 def test_month_granularity_anomalies_are_documented() -> None:

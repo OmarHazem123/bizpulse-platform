@@ -1,43 +1,76 @@
 """KPI anomaly detection with severity and root-cause attribution (TR-ML-04, §7.1).
 
-Rules (pre-registered in TECHNICAL-REQUIREMENTS.md §7.1):
+Rules (TECHNICAL-REQUIREMENTS.md §7.1, incl. amendments A1 and A2):
 
-* Baselines exclude the current day. Revenue and orders use the median of the same
-  weekday over the previous 4 weeks. AOV and refund rate use the median of the previous
-  28 days.
-* ``dev = (x - baseline) / baseline`` (reported). The robust z-score (median / MAD) is
-  computed over the trailing 56 days, excluding the current day. Volume metrics are
-  scored two-tailed (amendment A1): spikes on ``dev``, drops on
-  ``log1p(x) - log1p(baseline)``. Rate metrics are scored on ``dev``.
-* Methods: ``|z| >= 3.5``, a 3 x IQR fence, and IsolationForest (corroboration only).
-* CRITICAL: ``|z| >= 6`` or (>= 2 methods agree and ``|dev| >= 30 %``). WARNING otherwise.
+* Periods are days (``D``), or ISO weeks (``W``) for subscription domains, whose
+  billing calendars make daily revenue structurally lumpy.
+* Baselines exclude the current period. Daily revenue and orders use the median of the
+  same weekday over the previous 4 weeks. Weekly metrics and daily rate metrics use
+  the trailing median.
+* Two-tailed scoring (A1): spikes on ``dev = (x - b) / b``, drops on
+  ``log1p(x) - log1p(b)``. Robust z (median / MAD) over trailing history only.
+* Methods: ``|z| >= 3.5``, a 3 x IQR fence, and an **expanding-window IsolationForest**
+  (A2). It is refit every ``refit_every`` periods on strictly earlier periods only, and
+  flags a period whose score falls below the 1st percentile of past scores.
+* Severity (A2): CRITICAL iff ``|dev| >= 30 %`` and (``|z| >= 5`` or all three methods
+  agree). Otherwise WARNING. Severity of a past period never changes when data is
+  appended.
+* Slice monitoring (A2): net revenue per store/region and per channel is scored with
+  the same rules, so a localized incident is caught even when the total barely moves.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
-from bizpulse.analytics.kpis import first_orders, kpi_timeseries
+from bizpulse.analytics.kpis import first_orders, kpi_timeseries, period_start
+
+Granularity = Literal["D", "W"]
+FloatArray = npt.NDArray[np.float64]
 
 METRICS: tuple[str, ...] = ("net_revenue", "orders", "aov", "refund_rate")
-WEEKDAY_METRICS = frozenset({"net_revenue", "orders"})
+VOLUME_METRICS = frozenset({"net_revenue", "orders"})
 RATE_METRICS = frozenset({"aov", "refund_rate"})
 Z_THRESHOLD = 3.5
-CRITICAL_Z = 6.0
+CRITICAL_Z = 5.0
 IQR_K = 3.0
 CRITICAL_MIN_DEV = 0.30
-HISTORY_WINDOW = 56
-WARMUP = 28
-MIN_ORDERS = 20
-MIN_ORDERS_SHARE = 0.25
-IFOREST_CONTAMINATION = 0.02
+IFOREST_QUANTILE = 0.01
 SEED = 42
 ROOT_CAUSE_DIMENSIONS: tuple[str, ...] = ("category", "channel", "region", "customer_type")
+SLICE_DIMENSIONS: tuple[str, ...] = ("region", "channel")
+MIN_SLICE_SHARE = 0.05
+
+
+@dataclass(frozen=True)
+class Rules:
+    """Per-granularity windows (counted in periods)."""
+
+    volume_lags: tuple[int, ...]  # periods back used for the volume baseline
+    rate_window: int  # trailing periods for rate baselines
+    history: int  # trailing periods for the robust z / IQR scale
+    warmup: int  # minimum scored history
+    refit_every: int  # IsolationForest refit cadence
+    min_train: int  # minimum IsolationForest training periods
+    min_orders: int  # volume guard for rate metrics
+    min_slice_orders: float  # trailing-median orders a slice needs to be monitored
+
+
+RULES: dict[Granularity, Rules] = {
+    "D": Rules((7, 14, 21, 28), 28, 56, 28, 28, 56, 20, 10.0),
+    "W": Rules((1, 2, 3, 4), 4, 26, 8, 4, 16, 50, 30.0),
+}
+
+
+def granularity_for(domain: str) -> Granularity:
+    """Subscription businesses are monitored weekly (billing calendars), others daily."""
+    return "W" if domain == "saas" else "D"
 
 
 @dataclass(frozen=True)
@@ -62,6 +95,14 @@ class Alert:
     severity: str
     direction: str
     root_causes: tuple[RootCause, ...] = field(default=())
+    scope_dimension: str | None = None
+    scope_value: str | None = None
+
+    @property
+    def scope(self) -> str:
+        if self.scope_dimension is None:
+            return "total"
+        return f"{self.scope_dimension}={self.scope_value}"
 
     def top_cause(self, dimension: str) -> RootCause | None:
         return next((c for c in self.root_causes if c.dimension == dimension), None)
@@ -69,49 +110,61 @@ class Alert:
 
 @dataclass
 class AnomalyReport:
+    granularity: Granularity
     scores: pd.DataFrame  # MultiIndex columns (metric, field)
     alerts: list[Alert]
 
     def alerts_between(
-        self, start: pd.Timestamp, end: pd.Timestamp, metric: str | None = None
+        self,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        metric: str | None = None,
+        *,
+        scope: str | None = None,
     ) -> list[Alert]:
+        """Alerts whose period overlaps ``[start, end]`` (weekly periods start on Monday)."""
+        if self.granularity == "W":
+            start = start - pd.Timedelta(int(start.dayofweek), unit="D")
         return [
             a
             for a in self.alerts
-            if start <= a.date <= end and (metric is None or a.metric == metric)
+            if start <= a.date <= end
+            and (metric is None or a.metric == metric)
+            and (scope is None or a.scope == scope)
         ]
 
 
 # --------------------------------------------------------------------------- scoring
-def _baseline(values: npt.NDArray[np.float64], t: int, weekday: bool) -> float:
-    if weekday:
-        picks = [values[t - k] for k in (7, 14, 21, 28) if t - k >= 0]
+def _baseline(values: FloatArray, t: int, lags: tuple[int, ...] | None, window: int) -> float:
+    if lags is not None:
+        picks = [values[t - k] for k in lags if t - k >= 0]
+        need = max(2, len(lags) - 1)
     else:
-        picks = list(values[max(0, t - 28) : t])
+        picks = list(values[max(0, t - window) : t])
+        need = max(2, window // 4)
     clean = [v for v in picks if not np.isnan(v)]
-    return float(np.median(clean)) if len(clean) >= (3 if weekday else 7) else float("nan")
+    return float(np.median(clean)) if len(clean) >= need else float("nan")
 
 
 def score_metric(
-    series: pd.Series[float], *, weekday: bool, valid: pd.Series[bool] | None = None
+    series: pd.Series[float],
+    *,
+    volume: bool,
+    rules: Rules = RULES["D"],
+    valid: pd.Series[bool] | None = None,
 ) -> pd.DataFrame:
-    """Baseline, deviation, robust z and method flags per day (trailing windows only)."""
+    """Baseline, deviation, robust z and method flags per period (trailing windows only)."""
     values = np.array(series.to_numpy(), dtype=np.float64)
     if valid is not None:
-        values[~valid.to_numpy()] = np.nan
+        values[~valid.to_numpy(dtype=bool)] = np.nan
     n = len(values)
-    baseline = np.full(n, np.nan)
-    dev = np.full(n, np.nan)
-    for t in range(n):
-        b = _baseline(values, t, weekday)
-        baseline[t] = b
-        if not np.isnan(values[t]) and not np.isnan(b) and b > 0:
-            dev[t] = (values[t] - b) / b
-    # Amendment A1 (two-tailed): daily volume noise is right-skewed. The ratio deviation is
-    # the natural unbounded statistic for spikes and the log deviation for drops (a ratio
-    # is bounded at -100 %, so a total collapse could not reach |z| >= 3.5). Each tail is
-    # scored against its own statistic's robust scale. Rate metrics stay linear.
-    if weekday:
+    lags = rules.volume_lags if volume else None
+    baseline = np.asarray(
+        [_baseline(values, t, lags, rules.rate_window) for t in range(n)], dtype=np.float64
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        dev = np.where(baseline > 0, (values - baseline) / baseline, np.nan)
+    if volume:
         log_dev = np.log1p(np.maximum(values, 0.0)) - np.log1p(np.maximum(baseline, 0.0))
         log_dev[np.isnan(dev)] = np.nan
     else:
@@ -122,10 +175,10 @@ def score_metric(
     for t in range(n):
         if np.isnan(dev[t]):
             continue
-        stat = dev if dev[t] >= 0 else log_dev
-        hist = stat[max(0, t - HISTORY_WINDOW) : t]
+        stat = dev if dev[t] >= 0 else log_dev  # A1: two-tailed statistic
+        hist = stat[max(0, t - rules.history) : t]
         hist = hist[~np.isnan(hist)]
-        if len(hist) < WARMUP:
+        if len(hist) < rules.warmup:
             continue
         center = float(np.median(hist))
         mad = float(np.median(np.abs(hist - center)))
@@ -148,10 +201,50 @@ def score_metric(
     )
 
 
-def _volume_guard(orders: pd.Series[float]) -> pd.Series[bool]:
-    """Rate metrics are scored only on days with enough orders (trailing median, no look-ahead)."""
-    trailing = orders.shift(1).rolling(28, min_periods=7).median()
-    return (orders >= MIN_ORDERS) & (orders >= MIN_ORDERS_SHARE * trailing.fillna(0.0))
+def _trailing_median(series: pd.Series[float], rules: Rules) -> pd.Series[float]:
+    window = rules.rate_window if rules.volume_lags[0] == 1 else 28
+    trailing: pd.Series[float] = (
+        series.shift(1).rolling(window, min_periods=max(2, window // 4)).median()
+    )
+    return trailing
+
+
+def _volume_guard(orders: pd.Series[float], rules: Rules) -> pd.Series[bool]:
+    """Rate metrics are scored only on periods with enough orders (no look-ahead)."""
+    trailing = _trailing_median(orders, rules).fillna(0.0)
+    return (orders >= rules.min_orders) & (orders >= 0.25 * trailing)
+
+
+def expanding_iforest(z_matrix: FloatArray, rules: Rules) -> npt.NDArray[np.bool_]:
+    """IsolationForest flags where period t is scored by a model fit on periods < refit <= t.
+
+    Refit points sit on a fixed cadence from the series start, so appending data never
+    changes the model, score or threshold used for an earlier period.
+    """
+    n = len(z_matrix)
+    flags = np.zeros(n, dtype=bool)
+    usable = ~np.isnan(z_matrix).all(axis=1)
+    features = np.nan_to_num(z_matrix)
+    for refit in range(rules.min_train, n, rules.refit_every):
+        train = np.flatnonzero(usable[:refit])
+        if len(train) < rules.min_train // 2:
+            continue
+        forest = IsolationForest(n_estimators=100, random_state=SEED)
+        forest.fit(features[train])
+        threshold = float(np.quantile(forest.score_samples(features[train]), IFOREST_QUANTILE))
+        block = np.arange(refit, min(n, refit + rules.refit_every))
+        block = block[usable[block]]
+        if len(block):
+            flags[block] = forest.score_samples(features[block]) < threshold
+    return flags
+
+
+def severity_of(z: float, dev: float, z_hit: bool, iqr_hit: bool, forest_hit: bool) -> str | None:
+    """A2 calibration: noise cannot become CRITICAL through a single corroborating method."""
+    if not (z_hit or iqr_hit):
+        return None
+    strong = abs(z) >= CRITICAL_Z or (z_hit and iqr_hit and forest_hit)
+    return "CRITICAL" if strong and abs(dev) >= CRITICAL_MIN_DEV else "WARNING"
 
 
 # --------------------------------------------------------------------------- root cause
@@ -166,35 +259,42 @@ def _with_customer_type(tx: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _slice_daily(tx: pd.DataFrame, dimension: str, metric: str) -> pd.DataFrame:
-    """Daily x slice values of the attributable quantity for *metric*."""
-    day = tx["order_ts"].dt.normalize()
+def _slice_table(
+    tx: pd.DataFrame, dimension: str, metric: str, granularity: Granularity
+) -> pd.DataFrame:
+    """Period x slice values of the attributable quantity for *metric*."""
     if metric == "orders":
         rows = tx.loc[tx["status"].ne("cancelled")]
-        table = rows.groupby([day[rows.index], rows[dimension]])["order_id"].nunique()
     elif metric == "refund_rate":
         rows = tx.loc[tx["status"].eq("refunded")]
-        table = rows.groupby([day[rows.index], rows[dimension]])["net"].sum()
     else:  # net_revenue and aov are attributed through revenue
         rows = tx.loc[tx["status"].eq("completed")]
-        table = rows.groupby([day[rows.index], rows[dimension]])["net"].sum()
-    wide = table.unstack(fill_value=0)
-    return wide.astype("float64")
+    period = period_start(rows["order_ts"], granularity)
+    if metric == "orders":
+        table = rows.groupby([period, rows[dimension]])["order_id"].nunique()
+    else:
+        table = rows.groupby([period, rows[dimension]])["net"].sum()
+    return table.unstack(fill_value=0).astype("float64")
 
 
 def _root_causes(
-    slices: dict[str, pd.DataFrame], date: pd.Timestamp, metric: str, direction: str
+    slices: dict[str, pd.DataFrame],
+    date: pd.Timestamp,
+    metric: str,
+    direction: str,
+    rules: Rules,
+    step: pd.Timedelta,
 ) -> tuple[RootCause, ...]:
     causes: list[RootCause] = []
+    if metric in RATE_METRICS or rules.volume_lags[0] == 1:
+        lags: tuple[int, ...] = tuple(range(1, rules.rate_window + 1))
+    else:
+        lags = rules.volume_lags
+    history_days = [date - step * k for k in lags]
     for dimension, wide in slices.items():
         index = pd.DatetimeIndex(wide.index)
         actual_row = wide.reindex([date], fill_value=0.0).iloc[0]
-        if metric in RATE_METRICS:
-            history = wide.loc[(index < date) & (index >= date - pd.Timedelta(28, unit="D"))]
-        else:
-            same_days = [date - pd.Timedelta(7 * k, unit="D") for k in (1, 2, 3, 4)]
-            history = wide.loc[index.isin(same_days)]
-            history = history.reindex(same_days, fill_value=0.0)
+        history = wide.loc[index.isin(history_days)].reindex(history_days, fill_value=0.0)
         expected = history.median() if len(history) else pd.Series(0.0, index=wide.columns)
         delta = (actual_row - expected).astype("float64")
         total = float(delta.sum())
@@ -218,29 +318,97 @@ def _root_causes(
 
 
 # --------------------------------------------------------------------------- detection
-def detect_anomalies(tx: pd.DataFrame) -> AnomalyReport:
-    daily = kpi_timeseries(tx, "D")
-    guard = _volume_guard(daily["orders"].astype("float64"))
+def _periods(tx: pd.DataFrame, granularity: Granularity) -> pd.DataFrame:
+    table = kpi_timeseries(tx, granularity)
+    if granularity == "W":
+        table = table.loc[table["complete"]]
+    return table
+
+
+def _slice_alerts(
+    tx: pd.DataFrame, index: pd.DatetimeIndex, granularity: Granularity, rules: Rules
+) -> list[Alert]:
+    """Net-revenue monitoring per region/store and per channel (A2)."""
+    alerts: list[Alert] = []
+    completed = tx.loc[tx["status"].eq("completed")]
+    non_cancelled = tx.loc[tx["status"].ne("cancelled")]
+    total_revenue = (
+        completed.groupby(period_start(completed["order_ts"], granularity))["net"]
+        .sum()
+        .reindex(index, fill_value=0.0)
+        .astype("float64")
+    )
+    total_trailing = _trailing_median(total_revenue, rules)
+    for dimension in SLICE_DIMENSIONS:
+        revenue = _slice_table(tx, dimension, "net_revenue", granularity).reindex(
+            index, fill_value=0.0
+        )
+        orders = (
+            non_cancelled.groupby(
+                [period_start(non_cancelled["order_ts"], granularity), non_cancelled[dimension]]
+            )["order_id"]
+            .nunique()
+            .unstack(fill_value=0)
+            .reindex(index, fill_value=0)
+            .astype("float64")
+        )
+        if revenue.shape[1] < 2:
+            continue  # a single slice is the total
+        for value in sorted(map(str, revenue.columns)):
+            slice_revenue = revenue[value].astype("float64")
+            slice_orders = (
+                orders[value].astype("float64")
+                if value in orders.columns
+                else pd.Series(0.0, index=index)
+            )
+            eligible = (_trailing_median(slice_orders, rules) >= rules.min_slice_orders) & (
+                _trailing_median(slice_revenue, rules) >= MIN_SLICE_SHARE * total_trailing
+            )
+            scores = score_metric(slice_revenue, volume=True, rules=rules, valid=eligible)
+            for date, row in scores.iterrows():
+                z_hit, iqr_hit = bool(row["z_flag"]), bool(row["iqr_flag"])
+                z, dev = float(row["z"]), float(row["dev"])
+                severity = severity_of(z, dev, z_hit, iqr_hit, False)
+                if severity is None:
+                    continue
+                alerts.append(
+                    Alert(
+                        date=pd.Timestamp(str(date)),
+                        metric="net_revenue",
+                        value=float(row["value"]),
+                        baseline=float(row["baseline"]),
+                        deviation=dev,
+                        z=z,
+                        methods=tuple(n for n, h in (("zscore", z_hit), ("iqr", iqr_hit)) if h),
+                        severity=severity,
+                        direction="spike" if dev > 0 else "drop",
+                        scope_dimension=dimension,
+                        scope_value=value,
+                    )
+                )
+    return alerts
+
+
+def detect_anomalies(
+    tx: pd.DataFrame, granularity: Granularity = "D", *, slices: bool = True
+) -> AnomalyReport:
+    rules = RULES[granularity]
+    table = _periods(tx, granularity)
+    index = pd.DatetimeIndex(table.index)
+    step = pd.Timedelta(7 if granularity == "W" else 1, unit="D")
+    guard = _volume_guard(table["orders"].astype("float64"), rules)
     frames: dict[str, pd.DataFrame] = {}
     for metric in METRICS:
         frames[metric] = score_metric(
-            daily[metric].astype("float64"),
-            weekday=metric in WEEKDAY_METRICS,
+            table[metric].astype("float64"),
+            volume=metric in VOLUME_METRICS,
+            rules=rules,
             valid=guard if metric in RATE_METRICS else None,
         )
     scores = pd.concat(frames, axis=1)
-
-    # IsolationForest corroboration on the multivariate robust-z vector.
-    z_matrix = np.column_stack([frames[m]["z"].to_numpy() for m in METRICS])
-    scored = ~np.isnan(z_matrix).all(axis=1)
-    iforest = np.zeros(len(daily), dtype=bool)
-    if scored.sum() >= 50:
-        forest = IsolationForest(
-            contamination=IFOREST_CONTAMINATION, random_state=SEED, n_estimators=200
-        )
-        labels = forest.fit_predict(np.nan_to_num(z_matrix[scored]))
-        iforest[np.flatnonzero(scored)] = labels == -1
-    scores[("all", "iforest_flag")] = iforest
+    z_matrix = np.column_stack([frames[m]["z"].to_numpy(dtype=np.float64) for m in METRICS])
+    forest_flags = expanding_iforest(z_matrix, rules)
+    scores[("all", "iforest_flag")] = forest_flags
 
     enriched = _with_customer_type(tx)
     alerts: list[Alert] = []
@@ -249,19 +417,21 @@ def detect_anomalies(tx: pd.DataFrame) -> AnomalyReport:
         frame = frames[metric]
         for pos, (date, row) in enumerate(frame.iterrows()):
             z_hit, iqr_hit = bool(row["z_flag"]), bool(row["iqr_flag"])
-            if not (z_hit or iqr_hit):
+            forest_hit = bool(forest_flags[pos])
+            z, dev = float(row["z"]), float(row["dev"])
+            severity = severity_of(z, dev, z_hit, iqr_hit, forest_hit)
+            if severity is None:
                 continue
             methods = tuple(
                 name
-                for name, hit in (("zscore", z_hit), ("iqr", iqr_hit), ("iforest", iforest[pos]))
+                for name, hit in (("zscore", z_hit), ("iqr", iqr_hit), ("iforest", forest_hit))
                 if hit
             )
-            z, dev = float(row["z"]), float(row["dev"])
-            critical = abs(z) >= CRITICAL_Z or (len(methods) >= 2 and abs(dev) >= CRITICAL_MIN_DEV)
             direction = "spike" if dev > 0 else "drop"
             if metric not in slice_cache:
                 slice_cache[metric] = {
-                    dim: _slice_daily(enriched, dim, metric) for dim in ROOT_CAUSE_DIMENSIONS
+                    dim: _slice_table(enriched, dim, metric, granularity)
+                    for dim in ROOT_CAUSE_DIMENSIONS
                 }
             when = pd.Timestamp(str(date))
             alerts.append(
@@ -273,10 +443,14 @@ def detect_anomalies(tx: pd.DataFrame) -> AnomalyReport:
                     deviation=dev,
                     z=z,
                     methods=methods,
-                    severity="CRITICAL" if critical else "WARNING",
+                    severity=severity,
                     direction=direction,
-                    root_causes=_root_causes(slice_cache[metric], when, metric, direction),
+                    root_causes=_root_causes(
+                        slice_cache[metric], when, metric, direction, rules, step
+                    ),
                 )
             )
-    alerts.sort(key=lambda a: (a.date, METRICS.index(a.metric)))
-    return AnomalyReport(scores=scores, alerts=alerts)
+    if slices:
+        alerts.extend(_slice_alerts(tx, index, granularity, rules))
+    alerts.sort(key=lambda a: (a.date, METRICS.index(a.metric), a.scope))
+    return AnomalyReport(granularity=granularity, scores=scores, alerts=alerts)
