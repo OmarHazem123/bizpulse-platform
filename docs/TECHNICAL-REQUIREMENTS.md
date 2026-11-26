@@ -151,11 +151,30 @@ and **R** the refunded rows. Cancelled rows are stored but excluded from every K
 | --- | --- |
 | Baseline | Revenue and orders: median of the same weekday over the previous 4 weeks (handles weekly seasonality). AOV and refund rate: median of the previous 28 days. The current day is always excluded. |
 | Deviation | `dev = (x − baseline) / baseline` |
-| Robust z | `(dev − median(dev_hist)) / (1.4826 · MAD(dev_hist))` over the trailing 56 days, excluding the current day |
+| Robust z | `(s − median(s_hist)) / (1.4826 · MAD(s_hist))` over the trailing 56 days, excluding the current day. The scored statistic `s` is `dev` for rate metrics. Revenue and orders are scored two-tailed (**amendment A1**): spikes on `dev`, drops on `log1p(x) − log1p(baseline)`. Each tail uses its own statistic's robust scale. |
 | Methods | **z-score**: `|z| ≥ 3.5`. **IQR**: `dev` outside `[Q1 − 3·IQR, Q3 + 3·IQR]` of the trailing 56-day `dev`. **IsolationForest** (multivariate robust-z vector, contamination 0.02, seed 42) only corroborates and never alerts on its own. |
 | Severity | **CRITICAL**: `|z| ≥ 6`, or (≥ 2 methods agree **and** `|dev| ≥ 30 %`). **WARNING**: any other z-score/IQR flag. |
-| Volume guard | AOV and refund rate are only scored on days with ≥ 20 orders and ≥ 25 % of the median daily order count. |
+| Volume guard | AOV and refund rate are only scored on days with ≥ 20 orders and ≥ 25 % of the trailing 28-day median daily order count (no look-ahead). |
 | Warm-up | A metric is scored only once ≥ 28 days of deviation history exist. |
+
+**Amendment A1 (2026-11-26, post-hoc, with all runs recorded).**
+
+| Run | Revenue/orders statistic | Daily-anomaly recall | Missed |
+| --- | --- | --- | --- |
+| 1 (pre-registered) | `dev` (ratio), both tails | 4 / 7 | `checkout_outage` (z = −3.4), `riverside_closure`, `pos_outage`, i.e. every drop |
+| 2 | log deviation, both tails | 4 / 7 | `social_viral_spike` (z = +3.2), `enterprise_deal` (z = +1.6), `riverside_closure` |
+| 3 (adopted) | two-tailed: spikes on `dev`, drops on log deviation | 6 / 7 | `riverside_closure` |
+
+Why: daily volume noise is right-skewed. The ratio `dev` is bounded below at −100 %, so
+with ~±25 % daily noise a total collapse cannot reach `|z| ≥ 3.5`, while the log
+deviation compresses spikes. Each tail therefore uses its natural unbounded statistic.
+**No threshold was changed.** Because the adopted rule was chosen after seeing the demo
+results, its recall on this data is optimistically biased. The tests treat it as
+regression protection, not independent validation.
+
+**Known limitation:** `riverside_closure` (one of three stores closed) moves the
+*total* by only −26 % to −33 % (z ≈ −2). Detecting it needs per-segment (per-store)
+monitoring, which is not implemented. The test suite marks it as an expected failure.
 
 ## 8. Performance targets (local laptop)
 
