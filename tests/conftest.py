@@ -49,6 +49,38 @@ def basic_config() -> MappingConfig:
     return MappingConfig(dataset="acme", reporting_currency="USD")
 
 
+def make_tx(*rows: dict[str, Any]) -> pd.DataFrame:
+    """A transactions frame (analytics input) from partial row dicts."""
+    from bizpulse.analytics.data import prepare
+
+    records = []
+    for i, row in enumerate(rows, start=1):
+        gross = float(row.get("gross", 10.0))
+        discount = float(row.get("discount", 0.0))
+        records.append(
+            {
+                "order_ts": pd.Timestamp(row.get("ts", "2026-01-01 10:00")),
+                "order_id": row.get("order_id", f"O{i}"),
+                "transaction_id": row.get("transaction_id", f"T{i}"),
+                "customer_id": row.get("customer_id", "C1"),
+                "is_anonymous": row.get("is_anonymous", False),
+                "product_id": row.get("product_id", "P1"),
+                "product_name": row.get("product_name", row.get("product_id", "P1")),
+                "category": row.get("category", "Cat"),
+                "channel": row.get("channel", "web"),
+                "region": row.get("region", "EU"),
+                "status": row.get("status", "completed"),
+                "quantity": float(row.get("quantity", 1.0)),
+                "gross": gross,
+                "discount": discount,
+                "net": gross - discount,
+                "cost": row.get("cost", float("nan")),
+                "fee": float(row.get("fee", 0.0)),
+            }
+        )
+    return prepare(pd.DataFrame(records))
+
+
 def make_rows(*overrides: dict[str, Any]) -> pd.DataFrame:
     """A small, valid source frame in canonical header names; overrides patch rows."""
     base: dict[str, Any] = {
