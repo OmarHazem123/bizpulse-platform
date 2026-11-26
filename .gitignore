@@ -1,0 +1,38 @@
+# --- Python -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- Tooling caches -----------------------------------------------------
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --- Generated data, warehouse & reports (kept < 50 MB, never committed) -
+/data/
+/artifacts/
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp/
+
+# --- Secrets & local config ---------------------------------------------
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# --- Editors / OS -------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

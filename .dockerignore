@@ -1,0 +1,22 @@
+# Keep the build context tiny: Docker Desktop's disk lives on the system drive.
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+data
+artifacts
+*.duckdb
+*.duckdb.wal
+.env
+.env.*
+.idea
+.vscode
+docs
+tests

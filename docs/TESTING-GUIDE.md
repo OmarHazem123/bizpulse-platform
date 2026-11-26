@@ -1,0 +1,72 @@
+# Testing Guide
+
+## 1. Commands
+
+```bash
+uv run python tasks.py test                      # full suite
+uv run python tasks.py test -m "not slow"        # fast inner loop
+uv run python tasks.py test --cov --cov-report=term-missing
+uv run python tasks.py check                     # every static gate
+```
+
+`make test ARGS="-k mapping"` works where `make` exists.
+
+## 2. Test pyramid
+
+| Layer | Location | What it proves |
+| --- | --- | --- |
+| Unit | `tests/unit/` | pure functions: parsing, mapping, hashing, contract rules, KPI math |
+| Component | `tests/component/` | a module with real I/O: readers on real files, loader on a temp DuckDB |
+| Integration | `tests/integration/` (`@pytest.mark.integration`) | generator → pipeline → warehouse → reports, end to end |
+| Tooling | `tests/unit/test_tasks.py` | the gates themselves (eol, hygiene and Makefile parity detect violations) |
+
+## 3. Ground-truth testing with the demo manifest
+
+The generator writes `manifests/<dataset>.json`:
+
+```json
+{"dirty_rows": [{"source_row": 118, "codes": ["order_date.unparseable"]}, ...],
+ "anomalies": [{"name": "checkout_outage", "start": "2026-03-10", "end": "2026-03-12", ...}]}
+```
+
+The integration suite asserts:
+
+1. **Exact quarantine**: the set of quarantined `source_row` values equals the manifest,
+   and each row's reason codes equal the manifest codes. Nothing extra, nothing missing.
+2. **Messy-but-valid rows load**: currency strings, mixed date formats, status casing.
+3. **Reconciliation**: `read = valid + quarantined` and `valid = inserted + updated + unchanged`.
+4. **Referential integrity**: every fact `customer_key`/`product_key`/`date_key` exists in its dimension.
+
+## 4. Idempotency tests
+
+| Scenario | Expected |
+| --- | --- |
+| Same file twice | second run `skipped`, warehouse unchanged |
+| Same rows, different file bytes (forced) | `0 inserted / 0 updated / N unchanged` |
+| One row's quantity changed | `1 updated`, all others unchanged |
+| New rows appended | only the new rows are inserted |
+| Re-upsert the same key (loader unit test) | no PK violation, exactly one row |
+
+## 5. Determinism tests
+
+- Generating twice with `seed=42` yields **byte-identical** files (CSV, XLSX, Parquet).
+- A different seed gives different data.
+- Window bounds are fixed (2025-05-01 → 2026-10-31) and never depend on today's date.
+
+## 6. ML evaluation tests (Phase 2)
+
+- **Leakage guard**: with future values replaced by NaN or garbage, features up to *t*
+  are unchanged.
+- **Backtest sanity**: the model's MAE ≤ 1.1 × Seasonal-Naive MAE on demo data. Intervals
+  achieve 80 % coverage within ±15 pp out-of-fold.
+- **Anomaly recall**: every injected anomaly window yields ≥ 1 alert, and outages are `CRITICAL`.
+- **What-if identity**: a zero-change scenario reproduces the baseline exactly.
+
+## 7. Conventions
+
+- Tests are typed (`mypy --strict` covers `tests/`).
+- Use the `tmp_path` / `settings` fixtures. Never write into the real `data/`.
+- Always close DuckDB connections (context managers), because Windows file locks break
+  `tmp_path` cleanup.
+- Build fake secrets in tests by concatenation, so the hygiene scanner never flags them.
+- Integration fixtures generate demo data at `scale=0.25` once per session for speed.

@@ -1,0 +1,28 @@
+# Enforce LF line endings for every text file, on every platform.
+* text=auto eol=lf
+
+# Scripts must stay LF even when checked out on Windows.
+*.py text eol=lf
+*.sh text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.lock text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+# Binary artifacts: never normalise, never diff.
+*.xlsx binary
+*.xls binary
+*.parquet binary
+*.duckdb binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
