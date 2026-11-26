@@ -21,3 +21,6 @@ artifacts
 .vscode
 docs
 tests
+.claude
+Dockerfile
+.dockerignore
