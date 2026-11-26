@@ -23,7 +23,8 @@ The last verified gate results:
 - `tasks.py test`: 253 tests pass (95 % statement + branch coverage), none marked `xfail`.
 - `tasks.py docker-smoke`: passes.
 
-Commits are local on `main`. There is no remote, so never push unless the user asks.
+`main` is published to `origin`, the public GitHub repository
+`OmarHazem123/bizpulse-platform`. Push only when the user asks.
 
 ## 1. Project overview and mission
 
