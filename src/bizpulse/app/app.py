@@ -2,7 +2,7 @@
 
 The sidebar selects a dataset, a date range (applied to BI views) and a trend
 granularity. Tabs render lazily: only the open tab runs, and heavy ML results are cached
-per dataset version (see :mod:`bizpulse.dashboard.state`).
+per dataset version (see :mod:`bizpulse.app.state`).
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ import streamlit as st
 
 from bizpulse import __version__
 from bizpulse.analytics.data import DatasetInfo
+from bizpulse.app import state
+from bizpulse.app.palette import Palette, palette_for
+from bizpulse.app.views import customers, forecasts, overview, upload, whatif
+from bizpulse.app.views.common import FREQ_LABELS, Context, Freq, empty_state
 from bizpulse.config import Settings
-from bizpulse.dashboard import state
-from bizpulse.dashboard.palette import Palette, palette_for
-from bizpulse.dashboard.views import customers, forecasts, overview, upload, whatif
-from bizpulse.dashboard.views.common import FREQ_LABELS, Context, Freq, empty_state
 from bizpulse.logging_utils import get_logger
 
 log = get_logger(__name__)

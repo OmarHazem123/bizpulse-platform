@@ -7,10 +7,11 @@ is removed afterwards, so uploads never accumulate on disk.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,6 +143,29 @@ def build_config(
             "columns": dict(columns or {}),
         }
     )
+
+
+def quarantine_frame(rows: Sequence[tuple[Any, ...]]) -> pd.DataFrame:
+    """Quarantined rows as a table: source row, reason codes, messages, original values.
+
+    *rows* are ``(source_row, reason_codes, issues_json, raw_json)`` tuples from
+    ``meta_quarantine``. Original values keep the source file's own column names.
+    """
+    records: list[dict[str, Any]] = []
+    for source_row, codes, issues_json, raw_json in rows:
+        issues = json.loads(issues_json) if issues_json else []
+        raw = json.loads(raw_json) if raw_json else {}
+        records.append(
+            {
+                "source row": int(source_row),
+                "reasons": str(codes),
+                "details": "; ".join(
+                    f"{i.get('field')}: {i.get('message')}" for i in issues if isinstance(i, dict)
+                ),
+                **{str(k): v for k, v in (raw.items() if isinstance(raw, dict) else [])},
+            }
+        )
+    return pd.DataFrame(records)
 
 
 @dataclass(frozen=True)

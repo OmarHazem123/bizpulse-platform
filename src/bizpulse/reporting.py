@@ -25,12 +25,14 @@ from bizpulse.analytics.kpis import (
 )
 from bizpulse.analytics.rfm import PLAYBOOKS, rfm_table, segment_summary
 from bizpulse.analytics.timeofday import peak_hours
-from bizpulse.ml.anomaly import Alert, detect_anomalies, granularity_for
-from bizpulse.ml.forecasting import daily_revenue, forecast_series
+from bizpulse.ml.anomaly import Alert, AnomalyReport, detect_anomalies, granularity_for
+from bizpulse.ml.forecasting import ForecastResult, daily_revenue, forecast_series
+from bizpulse.ml.incidents import Incident, group_incidents
 
 LTV_MONTHS: tuple[int, ...] = (1, 3, 6, 12)
 TOP_ITEMS = 5
 RECENT_ALERT_DAYS = 30
+TOP_INCIDENTS = 5
 
 
 def jsonable(value: Any) -> Any:
@@ -146,8 +148,8 @@ def _customer_section(tx: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def _forecast_section(tx: pd.DataFrame) -> dict[str, Any]:
-    result = forecast_series(daily_revenue(tx))
+def _forecast_section(tx: pd.DataFrame, result: ForecastResult | None) -> dict[str, Any]:
+    result = result if result is not None else forecast_series(daily_revenue(tx))
     bt = result.backtest
     frame = result.forecast.reset_index()
     return {
@@ -166,8 +168,30 @@ def _forecast_section(tx: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def _anomaly_section(tx: pd.DataFrame, domain: str) -> dict[str, Any]:
-    report = detect_anomalies(tx, granularity_for(domain))
+def _incident(incident: Incident) -> dict[str, Any]:
+    head = incident.headline
+    cause = head.root_causes[0] if head.root_causes else None
+    return {
+        "start": incident.start,
+        "end": incident.end,
+        "severity": incident.severity,
+        "company_wide": incident.company_wide,
+        "alerts": len(incident.alerts),
+        "metrics": list(incident.metrics),
+        "slices": list(incident.slices),
+        "headline": {
+            "metric": head.metric,
+            "scope": head.scope,
+            "direction": head.direction,
+            "deviation": head.deviation,
+        },
+        "top_cause": None if cause is None else f"{cause.dimension}={cause.value}",
+    }
+
+
+def _anomaly_section(tx: pd.DataFrame, domain: str, report: AnomalyReport | None) -> dict[str, Any]:
+    if report is None:
+        report = detect_anomalies(tx, granularity_for(domain))
     counts: dict[str, int] = {}
     for alert in report.alerts:
         kind = "total" if alert.scope == "total" else "slice"
@@ -176,12 +200,15 @@ def _anomaly_section(tx: pd.DataFrame, domain: str) -> dict[str, Any]:
     end = pd.Timestamp(tx["order_ts"].max()).normalize()
     start = end - pd.Timedelta(RECENT_ALERT_DAYS - 1, unit="D")
     recent = report.alerts_between(start, end)
+    incidents = group_incidents(report.alerts, report.granularity)
     return {
         "granularity": report.granularity,
         "alerts_total": len(report.alerts),
         "counts": dict(sorted(counts.items())),
         "recent_window": {"start": start, "end": end},
         "recent": [_alert(a) for a in recent],
+        "incidents_total": len(incidents),
+        "top_incidents": [_incident(i) for i in incidents[:TOP_INCIDENTS]],
     }
 
 
@@ -191,8 +218,14 @@ def build_report(
     *,
     include_forecast: bool = True,
     include_anomalies: bool = True,
+    forecast: ForecastResult | None = None,
+    anomalies: AnomalyReport | None = None,
 ) -> dict[str, Any]:
-    """Every headline number for one dataset, as JSON-serializable data."""
+    """Every headline number for one dataset, as JSON-serializable data.
+
+    Already computed *forecast* / *anomalies* results (e.g. cached by the dashboard) are
+    reused instead of being recomputed.
+    """
     if tx.empty:
         raise ValueError(f"dataset {info.dataset!r} has no transactions")
     report: dict[str, Any] = {
@@ -216,9 +249,9 @@ def build_report(
         "peak_local_hours": peak_hours(tx, info.timezone),
     }
     if include_forecast:
-        report["forecast"] = _forecast_section(tx)
+        report["forecast"] = _forecast_section(tx, forecast)
     if include_anomalies:
-        report["anomalies"] = _anomaly_section(tx, info.domain)
+        report["anomalies"] = _anomaly_section(tx, info.domain, anomalies)
     result: dict[str, Any] = jsonable(report)
     return result
 
@@ -323,4 +356,108 @@ def render_text(report: dict[str, Any]) -> str:
             )
         if not a["recent"]:
             lines.append("    no alerts")
+        lines.append(
+            f"  {a['incidents_total']} incidents after grouping adjacent alerts; most important:"
+        )
+        for inc in a["top_incidents"]:
+            lines.append(f"    {_incident_line(inc)}")
     return "\n".join(lines)
+
+
+def _incident_line(inc: dict[str, Any]) -> str:
+    head = inc["headline"]
+    if inc["start"] == inc["end"]:
+        span = inc["start"][:10]
+    else:
+        span = f"{inc['start'][:10]} -> {inc['end'][:10]}"
+    where = "company-wide" if inc["company_wide"] else "local: " + ", ".join(inc["slices"])
+    cause = f", top cause {inc['top_cause']}" if inc["top_cause"] else ""
+    return (
+        f"{inc['severity']} {span} ({where}): {head['metric']} {head['direction']} "
+        f"{_signed_pct(head['deviation'])}, {inc['alerts']} alert"
+        f"{'' if inc['alerts'] == 1 else 's'}{cause}"
+    )
+
+
+def render_markdown(report: dict[str, Any]) -> str:
+    """An executive summary in Markdown (dashboard download, ``report --markdown``)."""
+    ds = report["dataset"]
+    cur = ds["currency"]
+    cov = report["coverage"]
+    k = report["kpis"]["all_time"]
+    out = [
+        f"# Executive summary: {ds['display_name']}",
+        "",
+        f"Dataset `{ds['name']}` ({ds['domain']}, {cur}, timezone {ds['timezone']}). Data from "
+        f"{cov['first_order'][:10]} to {cov['last_order'][:10]}, "
+        f"{cov['transactions']:,} transaction lines.",
+        "",
+        "## Key figures (all time)",
+        "",
+        "| KPI | Value |",
+        "| --- | ---: |",
+        f"| Gross revenue | {_money(k['gross_revenue'], cur)} |",
+        f"| Net revenue | {_money(k['net_revenue'], cur)} |",
+        f"| Gross margin | {_pct(k['gross_margin_pct'])} |",
+        f"| Net profit | {_money(k['net_profit'], cur)} |",
+        f"| Orders | {k['orders']:,} |",
+        f"| Average order value | {_money(k['aov'], cur)} |",
+        f"| Refund rate | {_pct(k['refund_rate'])} |",
+        f"| Active identified customers | {k['active_customers']:,} |",
+    ]
+    for label, key in (("Month over month", "mom_growth"), ("Week over week", "wow_growth")):
+        growth = report["kpis"][key]
+        if growth:
+            out.append(
+                f"| {label} net revenue growth ({growth['period'][:10]}) | "
+                f"{_signed_pct(growth['pct'])} |"
+            )
+    p = report["pareto"]
+    out += [
+        "",
+        "## Revenue concentration",
+        "",
+        f"{p['items_for_80']} of {p['items_total']} products ({_pct(p['share_items_for_80'])}) "
+        "generate 80% of net revenue. Top products:",
+        "",
+        "| Product | Net revenue | Share |",
+        "| --- | ---: | ---: |",
+        *(
+            f"| {item['item']} | {_money(item['net_revenue'], cur)} | {_pct(item['share'])} |"
+            for item in p["top_items"]
+        ),
+        "",
+        "## Customers",
+        "",
+        "| Segment | Customers | Revenue share | First action |",
+        "| --- | ---: | ---: | --- |",
+        *(
+            f"| {seg['segment']} | {seg['customers']:,} | {_pct(seg['share_revenue'])} | "
+            f"{seg['first_action']} |"
+            for seg in report["customers"]["rfm_segments"]
+        ),
+        "",
+        "LTV per acquired customer: "
+        + ", ".join(
+            f"{m[1:]} months {_money(v, cur)}" for m, v in report["customers"]["ltv"].items()
+        )
+        + ".",
+    ]
+    if "forecast" in report:
+        f = report["forecast"]
+        bt = f["backtest"]
+        out += [
+            "",
+            "## Outlook",
+            "",
+            f"Forecast net revenue for the next {f['horizon_days']} days: "
+            f"**{_money(f['next_30d_point_total'], cur)}** (seasonal naive "
+            f"{_money(f['next_30d_baseline_total'], cur)}). Backtest MAE ratio vs. seasonal "
+            f"naive {bt['mae_ratio']:.2f}; 80% interval coverage {_pct(bt['coverage80'])}.",
+        ]
+    if "anomalies" in report:
+        a = report["anomalies"]
+        out += ["", "## Incidents to review", ""]
+        out += [f"- {_incident_line(inc)}" for inc in a["top_incidents"]] or ["- none"]
+    out += ["", "_Generated by BizPulse._", ""]
+    return "\n".join(out)

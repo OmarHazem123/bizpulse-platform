@@ -9,14 +9,15 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+from bizpulse.app.app import CUSTOMERS, FORECASTS, OVERVIEW, TABS, UPLOAD, WHATIF
+from bizpulse.app.views.upload import LAST_RUN
 from bizpulse.config import ENV_DATA_DIR, Settings
-from bizpulse.dashboard.app import CUSTOMERS, FORECASTS, OVERVIEW, TABS, UPLOAD, WHATIF
-from bizpulse.dashboard.views.upload import LAST_RUN
+from bizpulse.smoke import HOSTILE_ROWS, VALID_ROWS
 from tests.conftest import make_rows
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-APP = Path(__file__).resolve().parents[2] / "src" / "bizpulse" / "dashboard" / "app.py"
+APP = Path(__file__).resolve().parents[2] / "src" / "bizpulse" / "app" / "app.py"
 TIMEOUT = 240
 
 
@@ -55,7 +56,8 @@ def test_every_tab_renders_for_every_dataset(
     at.session_state["dataset"] = dataset
 
     _show(at, OVERVIEW)
-    assert len(at.metric) == 8  # 6 KPI tiles + MoM growth + forecast preview
+    assert len(at.metric) == 10  # 7 KPI tiles + MoM + WoW growth + forecast preview
+    assert len(at.get("download_button")) == 1  # executive summary
     assert len(at.get("plotly_chart")) >= 5
 
     _show(at, CUSTOMERS)
@@ -64,6 +66,7 @@ def test_every_tab_renders_for_every_dataset(
     _show(at, FORECASTS)
     labels = {m.label for m in at.metric}
     assert "Backtest MAE vs seasonal naive" in labels
+    assert "Incidents" in labels and "Company-wide incidents" in labels
     weekly = "Weekly monitoring" in _texts(at)
     assert weekly == (dataset == "saas")  # amendment A2: subscriptions monitored weekly
 
@@ -136,4 +139,29 @@ def test_upload_flow_loads_a_new_dataset(tmp_path: Path, monkeypatch: pytest.Mon
     assert "acme_orders" in at.selectbox(key="dataset").options
     assert not (data_dir / "uploads").exists() or not any((data_dir / "uploads").iterdir())
     for tab in (OVERVIEW, CUSTOMERS, FORECASTS, WHATIF):
+        _show(at, tab)
+
+
+def test_hostile_upload_without_optional_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NaN / inf / bad dates and no optional columns: valid rows load, nothing crashes."""
+    header = "transaction_id,order_date,customer_id,product_id,quantity,unit_price"
+    source = tmp_path / "hostile.csv"
+    lines = [header, *VALID_ROWS, *HOSTILE_ROWS]
+    source.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    at = _app(monkeypatch, tmp_path / "data").run()
+    _show(at, UPLOAD)
+    at.file_uploader(key="up_file").upload(source.name, source.read_bytes(), "text/csv")
+    at.run()
+    assert not at.exception and not at.error
+    at.button(key="up_run").click()
+    at.run()
+    assert not at.exception and not at.error, [e.value for e in at.error]
+    outcome = at.session_state[LAST_RUN]
+    assert outcome["status"] == "success_with_warnings"
+    rows = outcome["report"]["rows"]
+    assert (rows["valid"], rows["quarantined"]) == (len(VALID_ROWS), len(HOSTILE_ROWS))
+    # Every analytics tab copes with a tiny dataset that has no optional columns.
+    for tab in (OVERVIEW, CUSTOMERS, FORECASTS, WHATIF, UPLOAD):
         _show(at, tab)

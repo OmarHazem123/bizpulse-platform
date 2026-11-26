@@ -14,6 +14,9 @@ import pandas as pd
 from bizpulse.warehouse.connection import connect
 from bizpulse.warehouse.schema import DIM_CUSTOMERS, DIM_PRODUCTS, FACT_TRANSACTIONS, META_DATASETS
 
+#: Label for an optional dimension the source file did not provide.
+NOT_PROVIDED = "(not provided)"
+
 #: Columns of a transactions frame, the input of every analytics/ML function.
 TX_COLUMNS: tuple[str, ...] = (
     "order_ts",
@@ -84,6 +87,11 @@ def prepare(frame: pd.DataFrame) -> pd.DataFrame:
     for column in ("quantity", "gross", "discount", "net", "cost", "fee"):
         out[column] = out[column].astype("float64")
     out["is_anonymous"] = out["is_anonymous"].astype(bool)
+    # Optional source columns may be absent: label them so breakdowns, Pareto and slices
+    # never mix missing values with names (stored data is left as NULL).
+    out["product_name"] = out["product_name"].fillna(out["product_id"])
+    for column in ("category", "channel", "region"):
+        out[column] = out[column].fillna(NOT_PROVIDED)
     return out.reset_index(drop=True)
 
 

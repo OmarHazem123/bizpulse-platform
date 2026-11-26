@@ -63,6 +63,7 @@ def test_help_documents_every_command(capsys: pytest.CaptureFixture[str]) -> Non
         "generate-demo",
         "run-pipeline",
         "runs",
+        "status",
         "report",
         "forecast",
         "whatif",
@@ -161,3 +162,28 @@ def test_dashboard_command_launches_streamlit(
     assert argv[argv.index("--server.headless") + 1] == "true"
     assert os.environ[ENV_DATA_DIR] == str(data.resolve())
     assert not (data / "warehouse").exists()  # no --demo-if-empty: nothing generated
+
+
+def test_status_and_markdown_export(
+    demo_settings: Settings, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data = str(demo_settings.data_dir)
+    assert main(["--data-dir", data, "status"]) == 0
+    out = capsys.readouterr().out
+    assert "3 datasets" in out
+    for name in ("ecommerce", "saas", "retail_fb"):
+        assert name in out
+    assert "success_with_warnings" in out
+
+    target = tmp_path / "summary.md"
+    args = ["--data-dir", data, "report", "--dataset", "ecommerce", "--markdown", str(target)]
+    assert main([*args, "--no-forecast"]) == 0
+    summary = target.read_text(encoding="utf-8")
+    assert summary.startswith("# Executive summary:")
+    for heading in ("## Key figures", "## Revenue concentration", "## Customers", "## Incidents"):
+        assert heading in summary
+    assert "| Gross revenue |" in summary
+    assert "\r" not in summary
+
+    assert main(["--data-dir", str(tmp_path / "none"), "status"]) == 0
+    assert "no warehouse yet" in capsys.readouterr().out

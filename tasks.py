@@ -367,6 +367,10 @@ def cmd_run_pipeline(args: list[str]) -> None:
     run([PY, "-m", "bizpulse.cli", "run-pipeline", *(args or ["--all"])])
 
 
+def cmd_report(args: list[str]) -> None:
+    run([PY, "-m", "bizpulse.cli", "report", *args])
+
+
 def cmd_dashboard(args: list[str]) -> None:
     run([PY, "-m", "bizpulse.cli", "dashboard", *args])
 
@@ -460,6 +464,7 @@ COMMANDS: dict[str, tuple[Callable[[list[str]], None], str]] = {
     "test": (cmd_test, "Run the pytest suite (extra args are forwarded)"),
     "generate-demo": (cmd_generate_demo, "Generate deterministic demo datasets (seed=42)"),
     "run-pipeline": (cmd_run_pipeline, "Ingest, validate and load datasets into DuckDB"),
+    "report": (cmd_report, "Print / export the decision report (--dataset, --json, --markdown)"),
     "dashboard": (cmd_dashboard, "Launch the Streamlit dashboard"),
     "docker-build": (cmd_docker_build, "Build the production Docker image"),
     "docker-smoke": (cmd_docker_smoke, "Build and smoke-test the Docker image"),

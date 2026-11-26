@@ -10,9 +10,9 @@ import streamlit as st
 
 from bizpulse.analytics.data import DatasetInfo
 from bizpulse.analytics.kpis import window
+from bizpulse.app import state
+from bizpulse.app.palette import Palette
 from bizpulse.config import Settings
-from bizpulse.dashboard import state
-from bizpulse.dashboard.palette import Palette
 from bizpulse.pipeline import load_demo
 
 Freq = Literal["D", "W", "M"]
@@ -39,7 +39,7 @@ class Context:
 
     @property
     def key(self) -> tuple[str, float, str]:
-        """Cache key for :mod:`bizpulse.dashboard.state` loaders."""
+        """Cache key for :mod:`bizpulse.app.state` loaders."""
         return self.warehouse, self.stamp, self.info.dataset
 
     @property

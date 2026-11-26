@@ -8,9 +8,8 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from bizpulse.config import Settings
-from bizpulse.dashboard import charts
-from bizpulse.dashboard.ingest import (
+from bizpulse.app import charts
+from bizpulse.app.ingest import (
     NOT_MAPPED,
     build_config,
     dataset_name_error,
@@ -22,7 +21,8 @@ from bizpulse.dashboard.ingest import (
     staged_upload,
     suggest_dataset_name,
 )
-from bizpulse.dashboard.palette import DARK, LIGHT, palette_for, severity_label
+from bizpulse.app.palette import DARK, LIGHT, palette_for, severity_label
+from bizpulse.config import Settings
 from bizpulse.ingestion.mapping import MappingConfig
 from bizpulse.ml.anomaly import Alert, RootCause
 from bizpulse.schema import CANONICAL_FIELDS

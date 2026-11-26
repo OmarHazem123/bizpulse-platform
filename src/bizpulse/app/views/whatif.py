@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from bizpulse.dashboard import charts, state
-from bizpulse.dashboard.views.common import Context, change, signed_pct, table_view
+from bizpulse.app import charts, state
+from bizpulse.app.views.common import Context, change, signed_pct, table_view
 from bizpulse.ml.whatif import MAX_DISCOUNT, MAX_RETENTION, MONTHS, Baseline, Levers, simulate
 
 SLIDER_PP = 20.0  # +/- percentage points for rate levers

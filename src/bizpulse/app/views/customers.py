@@ -7,8 +7,8 @@ import streamlit as st
 
 from bizpulse.analytics.cohorts import average_retention_curve, ltv_at
 from bizpulse.analytics.rfm import PLAYBOOKS, SEGMENTS, segment_summary
-from bizpulse.dashboard import charts, state
-from bizpulse.dashboard.views.common import Context, pct, table_view
+from bizpulse.app import charts, state
+from bizpulse.app.views.common import Context, pct, table_view
 
 LTV_MONTHS: tuple[int, ...] = (1, 3, 6, 12)
 

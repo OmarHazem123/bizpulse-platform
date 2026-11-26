@@ -17,12 +17,13 @@ import streamlit as st
 from bizpulse.analytics.cohorts import CohortResult, cohort_analysis
 from bizpulse.analytics.data import DatasetInfo, list_datasets, load_transactions
 from bizpulse.analytics.rfm import rfm_table
+from bizpulse.app.ingest import quarantine_frame
 from bizpulse.config import Settings
 from bizpulse.ml.anomaly import AnomalyReport, detect_anomalies, granularity_for
 from bizpulse.ml.forecasting import ForecastResult, daily_revenue, forecast_series
 from bizpulse.ml.whatif import Baseline, compute_baseline
 from bizpulse.warehouse.connection import connect
-from bizpulse.warehouse.schema import META_RUNS
+from bizpulse.warehouse.schema import META_QUARANTINE, META_RUNS
 
 
 def warehouse_stamp(settings: Settings) -> float:
@@ -88,6 +89,20 @@ def runs(warehouse: str, stamp: float, limit: int = 50) -> pd.DataFrame:
             [limit],
         ).df()
     return frame
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def quarantine(warehouse: str, stamp: float, run_id: str, limit: int = 5000) -> pd.DataFrame:
+    """Quarantined rows of one pipeline run (capped at *limit*)."""
+    if not Path(warehouse).exists():
+        return pd.DataFrame()
+    with connect(Path(warehouse), read_only=True) as con:
+        rows = con.execute(
+            f"""SELECT source_row, reason_codes, issues_json, raw_json FROM {META_QUARANTINE}
+                WHERE run_id = ? ORDER BY source_row LIMIT ?""",
+            [run_id, limit],
+        ).fetchall()
+    return quarantine_frame(rows)
 
 
 def clear() -> None:

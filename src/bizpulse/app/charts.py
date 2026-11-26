@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 import pandas as pd
 import plotly.graph_objects as go
 
-from bizpulse.dashboard.palette import Palette, severity_label
+from bizpulse.app.palette import Palette, severity_label
 from bizpulse.ml.anomaly import Alert
 
 FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
@@ -97,8 +97,36 @@ def trend_figure(
     return style(fig, pal, legend=bool(partial is not None and partial.any()))
 
 
-def pareto_figure(table: pd.DataFrame, items_for_80: int, pal: Palette) -> go.Figure:
-    """Cumulative revenue share by product rank, with the 80 % line (one axis)."""
+def multi_trend(
+    series: dict[str, pd.Series[float]],
+    pal: Palette,
+    *,
+    prefix: str = "",
+    fmt: str = ",.0f",
+) -> go.Figure:
+    """Up to four same-unit series on one axis (fixed slot order, legend always shown)."""
+    fig = go.Figure()
+    for slot, (name, values) in enumerate(series.items()):
+        fig.add_trace(
+            go.Scatter(
+                x=values.index,
+                y=values.to_numpy(),
+                mode="lines+markers" if len(values) <= 40 else "lines",
+                line={"color": pal.series[slot], "width": 2},
+                marker={"size": 8, "line": {"color": pal.surface, "width": 2}},
+                name=name,
+                hovertemplate=f"{name}: {_value(prefix, fmt)}<extra></extra>",
+            )
+        )
+    fig.add_hline(y=0, line={"color": pal.axis, "width": 1})
+    fig.update_yaxes(tickformat=fmt, tickprefix=prefix)
+    return style(fig, pal, hovermode="x unified")
+
+
+def pareto_figure(
+    table: pd.DataFrame, items_for_80: int, pal: Palette, noun: str = "items"
+) -> go.Figure:
+    """Cumulative revenue share by item rank, with the 80 % line (one axis)."""
     fig = go.Figure(
         go.Scatter(
             x=table["rank"],
@@ -118,7 +146,7 @@ def pareto_figure(table: pd.DataFrame, items_for_80: int, pal: Palette) -> go.Fi
     fig.add_annotation(
         x=items_for_80,
         y=0.8,
-        text=f"{items_for_80} of {len(table)} items = 80% of net revenue",
+        text=f"{items_for_80} of {len(table)} {noun} = 80% of net revenue",
         showarrow=False,
         xanchor="left",
         yanchor="top",
@@ -127,7 +155,7 @@ def pareto_figure(table: pd.DataFrame, items_for_80: int, pal: Palette) -> go.Fi
         font={"color": pal.ink},
     )
     fig.update_yaxes(tickformat=".0%", range=[0, 1.02])
-    fig.update_xaxes(title_text="items ranked by net revenue")
+    fig.update_xaxes(title_text=f"{noun} ranked by net revenue")
     return style(fig, pal, legend=False)
 
 

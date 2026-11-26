@@ -3,7 +3,7 @@
 RUN := uv run python tasks.py
 
 .PHONY: help setup check eol hygiene size makefile-sync lint format format-check typecheck \
-	test generate-demo run-pipeline dashboard docker-build docker-smoke clean clean-data
+	test generate-demo run-pipeline report dashboard docker-build docker-smoke clean clean-data
 
 help:
 	@$(RUN) --help
@@ -46,6 +46,9 @@ generate-demo:
 
 run-pipeline:
 	$(RUN) run-pipeline $(ARGS)
+
+report:
+	$(RUN) report $(ARGS)
 
 dashboard:
 	$(RUN) dashboard

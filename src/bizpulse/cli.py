@@ -14,6 +14,7 @@ import tempfile
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -33,12 +34,12 @@ from bizpulse.pipeline import (
     run_demo_pipelines,
     run_pipeline,
 )
-from bizpulse.reporting import build_report, render_text
+from bizpulse.reporting import build_report, render_markdown, render_text
 from bizpulse.smoke import DEFAULT_SMOKE_SCALE, SmokeError, run_smoke
 from bizpulse.warehouse.connection import connect
-from bizpulse.warehouse.schema import META_RUNS
+from bizpulse.warehouse.schema import FACT_TRANSACTIONS, META_DATASETS, META_RUNS
 
-DASHBOARD_APP = Path(__file__).resolve().parent / "dashboard" / "app.py"
+DASHBOARD_APP = Path(__file__).resolve().parent / "app" / "app.py"
 
 
 def _print_result(result: PipelineResult, settings: Settings) -> None:
@@ -157,13 +158,58 @@ def cmd_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    settings = Settings.from_env(args.data_dir)
+    path = settings.warehouse_path
+    if not path.exists():
+        print("no warehouse yet: run `bizpulse generate-demo` and `bizpulse run-pipeline --all`")
+        return 0
+    with connect(path, read_only=True) as con:
+        datasets = con.execute(
+            f"""SELECT d.dataset, d.domain, d.reporting_currency, d.timezone,
+                       COUNT(f.order_ts), MIN(f.order_ts), MAX(f.order_ts)
+                FROM {META_DATASETS} d LEFT JOIN {FACT_TRANSACTIONS} f USING (dataset)
+                GROUP BY ALL ORDER BY d.dataset"""
+        ).fetchall()
+        last_runs = {
+            row[0]: row[1:]
+            for row in con.execute(
+                f"""SELECT dataset, max(started_at), arg_max(status, started_at),
+                           arg_max(rows_read, started_at), arg_max(rows_quarantined, started_at),
+                           count(*)
+                    FROM {META_RUNS} GROUP BY dataset"""
+            ).fetchall()
+        }
+    size_mb = path.stat().st_size / 1048576
+    print(f"warehouse: {settings.relative(path)} ({size_mb:.1f} MB, {len(datasets)} datasets)")
+    print(
+        f"{'dataset':<14} {'domain':<10} {'cur':<4} {'timezone':<15} {'rows':>8} "
+        f"{'first order':<11} {'last order':<11} {'runs':>4}  last run (UTC)"
+    )
+    for name, domain, currency, tz, rows, first, last in datasets:
+        run = last_runs.get(name)
+        last_run = (
+            "-"
+            if run is None
+            else f"{run[0]:%Y-%m-%d %H:%M} {run[1]} (read {run[2] or 0:,}, "
+            f"quarantined {run[3] or 0:,})"
+        )
+        print(
+            f"{name:<14} {domain:<10} {currency:<4} {tz:<15} {rows:>8,} "
+            f"{'-' if first is None else f'{first:%Y-%m-%d}':<11} "
+            f"{'-' if last is None else f'{last:%Y-%m-%d}':<11} "
+            f"{0 if run is None else run[4]:>4}  {last_run}"
+        )
+    return 0
+
+
 # --------------------------------------------------------------------------- analysis
 def cmd_report(args: argparse.Namespace) -> int:
     settings = Settings.from_env(args.data_dir)
     infos = _datasets(settings, args.dataset)
     if infos is None:
         return 1
-    reports: dict[str, object] = {}
+    reports: dict[str, dict[str, Any]] = {}
     for info in infos:
         _, tx = load_transactions(settings.warehouse_path, info.dataset)
         report = build_report(
@@ -182,6 +228,12 @@ def cmd_report(args: argparse.Namespace) -> int:
         payload = reports[infos[0].dataset] if args.dataset else reports
         target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         print(f"\nJSON report: {target.name}")
+    if args.markdown:
+        target = Path(args.markdown)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        summaries = [render_markdown(report) for report in reports.values()]
+        target.write_text("\n---\n\n".join(summaries), encoding="utf-8")
+        print(f"Markdown summary: {target.name}")
     return 0
 
 
@@ -372,11 +424,17 @@ def build_parser() -> argparse.ArgumentParser:
     runs.add_argument("--limit", type=int, default=20)
     runs.set_defaults(func=cmd_runs)
 
+    status = sub.add_parser(
+        "status", help="warehouse overview: datasets, rows, date ranges and last runs"
+    )
+    status.set_defaults(func=cmd_status)
+
     rep = sub.add_parser(
         "report", help="KPIs, Pareto, RFM, cohorts/LTV, forecast and anomalies per dataset"
     )
     rep.add_argument("--dataset", help="one dataset (default: every dataset)")
     rep.add_argument("--json", help="also write the report as JSON to this path")
+    rep.add_argument("--markdown", help="also write an executive summary (Markdown) to this path")
     rep.add_argument("--no-forecast", action="store_true", help="skip the forecast backtest")
     rep.add_argument("--no-anomalies", action="store_true", help="skip anomaly detection")
     rep.set_defaults(func=cmd_report)

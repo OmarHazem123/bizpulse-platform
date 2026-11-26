@@ -9,9 +9,8 @@ import pandas as pd
 import streamlit as st
 from pydantic import ValidationError
 
-from bizpulse.config import Settings
-from bizpulse.dashboard import charts, state
-from bizpulse.dashboard.ingest import (
+from bizpulse.app import charts, state
+from bizpulse.app.ingest import (
     NOT_MAPPED,
     UPLOAD_TYPES,
     build_config,
@@ -23,7 +22,8 @@ from bizpulse.dashboard.ingest import (
     staged_upload,
     suggest_dataset_name,
 )
-from bizpulse.dashboard.palette import Palette
+from bizpulse.app.palette import Palette
+from bizpulse.config import Settings
 from bizpulse.ingestion.mapping import MappingConfig, MappingError
 from bizpulse.ingestion.readers import ReadError
 
@@ -116,23 +116,9 @@ def _show_result(outcome: dict[str, Any], pal: Palette) -> None:
         st.warning(f"Required fields not mapped: {report['missing_required_fields']}")
     reasons = report.get("reason_counts") or {}
     if reasons:
-        left, right = st.columns(2)
-        with left:
-            st.markdown("**Quarantine reasons**")
-            st.plotly_chart(charts.counts_bars(reasons, pal, name="rows"), key="reasons")
-        with right:
-            st.markdown("**Sample of quarantined rows**")
-            sample = pd.DataFrame(
-                [
-                    {
-                        "source row": item["source_row"],
-                        "reasons": ", ".join(item["codes"]),
-                        "detail": "; ".join(i["message"] for i in item["issues"]),
-                    }
-                    for item in report.get("quarantine_sample") or []
-                ]
-            )
-            st.dataframe(sample, hide_index=True)
+        st.markdown("**Quarantine reasons**")
+        st.plotly_chart(charts.counts_bars(reasons, pal, name="rows"), key="reasons")
+    _quarantined_rows(report["run_id"], report["dataset"])
     d1, d2 = st.columns(2)
     d1.download_button(
         "Download audit report (JSON)",
@@ -147,6 +133,23 @@ def _show_result(outcome: dict[str, Any], pal: Palette) -> None:
         file_name=f"{report['dataset']}_{report['run_id']}.md",
         mime="text/markdown",
         key="dl_md",
+    )
+
+
+def _quarantined_rows(run_id: str, dataset: str, *, key: str = "result") -> None:
+    """The full table of quarantined rows of one run, with a CSV download."""
+    settings = Settings.from_env()
+    table = state.quarantine(str(settings.warehouse_path), state.warehouse_stamp(settings), run_id)
+    if table.empty:
+        return
+    st.markdown(f"**Quarantined rows** ({len(table):,}, with the original values)")
+    st.dataframe(table, hide_index=True, height=min(400, 38 + 35 * len(table)))
+    st.download_button(
+        "Download quarantined rows (CSV)",
+        table.to_csv(index=False, lineterminator="\n").encode("utf-8"),
+        file_name=f"{dataset}_{run_id}_quarantine.csv",
+        mime="text/csv",
+        key=f"dl_quarantine_{key}",
     )
 
 
@@ -235,6 +238,8 @@ def _history(settings: Settings, stamp: float) -> None:
         return
     with st.expander("Audit report"):
         st.markdown(md_path.read_text(encoding="utf-8"))
+    run = runs.iloc[int(pick)]
+    _quarantined_rows(str(run["run_id"]), str(run["dataset"]), key="history")
 
 
 def render(settings: Settings, stamp: float, existing: list[str], pal: Palette) -> None:

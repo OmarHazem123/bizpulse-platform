@@ -340,6 +340,8 @@ def _slice_alerts(
     )
     total_trailing = _trailing_median(total_revenue, rules)
     for dimension in SLICE_DIMENSIONS:
+        if tx[dimension].nunique(dropna=True) < 2:
+            continue  # a single slice is the total itself: monitoring it would duplicate alerts
         revenue = _slice_table(tx, dimension, "net_revenue", granularity).reindex(
             index, fill_value=0.0
         )
