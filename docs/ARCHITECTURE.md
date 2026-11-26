@@ -52,9 +52,11 @@ src/bizpulse/
 │   ├── validator.py       # contract enforcement, dedupe, quarantine
 │   └── report.py          # JSON + Markdown data-quality audit report
 ├── warehouse/
-│   ├── schema.py          # DDL, table registry
+│   ├── schema.py          # DDL, table registry, orphan checks
 │   ├── connection.py      # connection factory (always closed, Windows-safe)
-│   └── loader.py          # staged upserts into the star schema
+│   ├── transform.py       # validated rows -> fact measures in reporting currency
+│   ├── loader.py          # staged, transactional upserts into the star schema
+│   └── maintenance.py     # storage stats + compaction (file stays within budget)
 ├── pipeline.py            # orchestration + run tracking (meta_pipeline_runs)
 ├── demo/                  # deterministic synthetic generator (seed=42)
 ├── analytics/             # Phase 2: kpis · rfm · cohorts
@@ -106,7 +108,8 @@ data/
 | --- | --- |
 | DuckDB single file | Columnar OLAP speed, zero ops, ACID transactions, native pandas interop. |
 | One warehouse, `dataset` column on every table | Multi-company comparisons and a single dashboard connection. Keys are hashed with the dataset name so tenants never collide. |
-| SHA-256 surrogate keys | Deterministic and idempotent across re-runs and machines. No sequences to drift. |
+| SHA-256-derived `BIGINT` keys (first 8 bytes of the digest) | Deterministic and idempotent across re-runs and machines, with no sequences to drift. 64-bit keys keep PK indexes and joins ~8× smaller than 64-char hex keys (measured: warehouse 58 MB → 22 MB). Collision odds ≈ N²/2⁶⁵, about 3e-8 at 1M rows. `row_hash` stays a full SHA-256 hex. |
+| Compact after data-changing runs | DuckDB never shrinks files, and PK indexes are rewritten at each checkpoint. `COPY FROM DATABASE` into a fresh file (constraints preserved, ~1 s) keeps the artifact budget. |
 | No declared foreign keys | DuckDB restricts updates on FK-referenced rows. Referential integrity is enforced by the loader and asserted in tests instead. |
 | Staged upsert (anti-join insert + update) instead of `INSERT OR REPLACE` | Deterministic insert/update/unchanged counts and no delete-reinsert of primary keys inside a transaction. |
 | Read everything as text first | Type coercion is a quality decision. The contract must see the raw value to give an exact reason. |

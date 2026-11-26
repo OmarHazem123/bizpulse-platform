@@ -13,7 +13,22 @@ review pause.
 - [x] MIT `LICENSE`, `.gitignore`, `.dockerignore`, `.editorconfig`
 - [x] Specification docs (this folder)
 
-## Phase 1: Ingestion, Quality & DuckDB Star Schema
+## Phase 1: Ingestion, Quality & DuckDB Star Schema ✅
+
+All steps below are done and gated (`tasks.py check` + `tasks.py test` green).
+
+Findings and decisions made during the build:
+
+- **Timezone leak in pandas ISO parsing.** A `+02:00` value shifted later naive values
+  by two hours. Fixed by parsing offset-aware and naive strings separately, with a
+  regression test.
+- **Warehouse over budget (58 MB).** Measurement showed PK indexes on 64-char hex keys
+  plus free blocks were the cause. The fix was BIGINT `key64` keys plus compaction after
+  data-changing runs, giving 21.8 MB.
+- **Loose currency-code stripping** made `ELE-001` parse as −1. Stripping is now
+  restricted to known ISO-4217 codes.
+- **Duplicate CSV headers** were silently renamed by pandas. They are now detected on
+  the raw header line.
 
 | Step | Module | Exit criteria |
 | --- | --- | --- |

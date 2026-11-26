@@ -1,0 +1,15 @@
+# CloudLedger: B2B SaaS billing export (Excel). Column names are left to
+# auto-detection on purpose. Only the ambiguous ones are pinned here.
+dataset: saas
+display_name: CloudLedger (demo SaaS)
+domain: saas
+reporting_currency: USD
+default_currency: USD
+dayfirst: true
+columns:
+  transaction_id: Line Ref
+  order_id: Invoice No
+  product_name: Plan Name
+status_values:
+  payment failed: cancelled
+  payment_failed: cancelled

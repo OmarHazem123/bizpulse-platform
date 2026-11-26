@@ -56,7 +56,8 @@ also quarantines the row.
 | TR-ING-06 | Date parsing handles ISO-8601, mixed formats (honouring `dayfirst`), Excel serial numbers and tz-aware strings (converted to naive UTC). |
 | TR-ING-07 | Amounts are converted to the dataset's `reporting_currency` using `fx_rates.yaml`. The original currency and rate are stored on the fact row. |
 | TR-ING-08 | Batch idempotency: SHA-256 of file bytes. A previously *successful* identical batch is `skipped` unless forced. |
-| TR-ING-09 | Row idempotency: `transaction_key = sha256(dataset ∣ transaction_id)`, `row_hash = sha256(canonical normalized values)`. Same key and same hash means unchanged. Same key and a new hash means update. |
+| TR-ING-09 | Row idempotency: `transaction_key = key64(dataset ∣ transaction_id)` (signed BIGINT = first 8 bytes of SHA-256), `row_hash = sha256(canonical normalized values)`. Same key and same hash means unchanged. Same key and a new hash means update. |
+| TR-ING-11 | The warehouse is compacted after every run that inserted or updated rows, so the file stays within the artifact budget. |
 | TR-ING-10 | `negative_quantity_as_refund: true` turns `q < 0` into `abs(q)` with `status = refunded`. |
 
 ## 4. Data-quality audit report
@@ -73,9 +74,9 @@ quarantined rows (≤ 25).
 | Table | Grain / key | Notes |
 | --- | --- | --- |
 | `dim_date` | one row per day, `date_key = yyyymmdd` | ISO week, quarter, weekday, weekend flag |
-| `dim_customers` | `customer_key = sha256(dataset∣customer_id)` | first/last seen, first channel, region, `is_anonymous` |
-| `dim_products` | `product_key = sha256(dataset∣product_id)` | latest name and category, first/last seen |
-| `fact_transactions` | `transaction_key` | measures in reporting currency, `row_hash`, `run_id`, lineage timestamps |
+| `dim_customers` | `customer_key = key64(dataset∣customer∣customer_id)` | first/last seen, first channel, region, `is_anonymous` |
+| `dim_products` | `product_key = key64(dataset∣product∣product_id)` | latest name and category, first/last seen |
+| `fact_transactions` | `transaction_key` (BIGINT) | measures in reporting currency, `row_hash`, `run_id`, lineage timestamps |
 | `meta_pipeline_runs` | `run_id` (UUID4) | status, counts, file hash, mapping, timings, error |
 | `meta_quarantine` | `(run_id, source_row)` | reasons JSON + raw record JSON |
 | `meta_datasets` | `dataset` | display name, domain, reporting currency, latest mapping |

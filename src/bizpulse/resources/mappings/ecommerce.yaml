@@ -1,0 +1,24 @@
+# Northwind Commerce: multi-currency online store export (CSV).
+dataset: ecommerce
+display_name: Northwind Commerce (demo e-commerce)
+domain: ecommerce
+reporting_currency: USD
+default_currency: USD
+dayfirst: false
+columns:
+  transaction_id: Line ID
+  order_id: Order Number
+  order_date: Order Date
+  customer_id: Customer ID
+  product_id: SKU
+  product_name: Product Title
+  category: Product Type
+  quantity: Qty
+  unit_price: Unit Price
+  discount_amount: Discount
+  unit_cost: Unit Cost
+  fee_amount: Processing Fee
+  currency: Currency
+  channel: Sales Channel
+  region: Ship Region
+  status: Financial Status

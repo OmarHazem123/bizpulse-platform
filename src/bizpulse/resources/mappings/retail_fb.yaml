@@ -1,0 +1,26 @@
+# Bean & Crumb: three-store cafe chain POS export (Parquet).
+dataset: retail_fb
+display_name: Bean & Crumb Cafes (demo retail F&B)
+domain: retail_fb
+reporting_currency: EUR
+default_currency: EUR
+dayfirst: true
+anonymous_customer_ids: [GUEST]
+composite_keys:
+  transaction_id: [ticket_id, line_no]
+columns:
+  order_id: ticket_id
+  order_date: ts
+  customer_id: loyalty_id
+  product_id: item_code
+  product_name: item_name
+  category: menu_category
+  quantity: qty
+  unit_price: price
+  discount_amount: promo_discount
+  unit_cost: food_cost
+  fee_amount: platform_fee
+  channel: order_type
+  region: store
+status_values:
+  void: cancelled

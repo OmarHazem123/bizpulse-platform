@@ -77,21 +77,23 @@ read_options:
 
 | Kind | Rule |
 | --- | --- |
-| Blank | `""`, whitespace, `nan`, `null`, `none`, `n/a`, `na`, `-` → missing |
-| Amount | strip symbols/codes (`$ € £ ¥ E£ USD EUR …`), detect the currency hint. If both `.` and `,` appear, the last one is the decimal separator. If only `,` followed by exactly 1–2 digits, it is a decimal comma, otherwise a thousands separator. `(x)` or trailing `-` means negative. |
+| Blank | `""`, whitespace, `nan`, `nat`, `null`, `none`, `n/a`, `#n/a`, `-` → missing. (`NA` is *not* blank: it is a valid region code.) |
+| Amount | strip symbols (`US$ C$ A$ R$ E£ $ € £ ¥ ₹`) and **known** ISO-4217 codes (`USD 49.99`), and record the currency hint. Arbitrary 3-letter tokens are not stripped, so `ELE-001` stays unparseable. If both `.` and `,` appear, the last one is the decimal separator. If only `,` followed by exactly 1–2 digits, it is a decimal comma (`45,90`). `1,299` is a thousands separator. `1.234.567` is dotted thousands. `(x)` or trailing `-` means negative. |
 | Currency | uppercase ISO code, or a symbol mapped to a code (`$→USD`, `€→EUR`, `£→GBP`, `¥→JPY`, `E£→EGP`). Precedence: currency column, then amount symbol hint, then dataset default. |
-| Date | ISO fast path, then `format="mixed"` with `dayfirst`, then Excel serials (1–80 000 days from 1899-12-30). tz-aware is converted to UTC and made naive. |
+| Date | native datetimes, `yyyymmdd`, Excel serials (1–80 000 days from 1899-12-30), then an ISO-8601 fast path, then `format="mixed"` with `dayfirst`. tz-aware values are converted to UTC and made naive. Offset-aware and naive strings are parsed **separately**, because pandas' vectorized ISO parser can leak one element's UTC offset onto later naive elements (regression-tested). |
 | ID | trimmed. Excel float artefacts `1001.0` → `1001`. |
 | Text dims | trimmed, internal whitespace collapsed. `channel` becomes lower snake case. |
 | Status | case/whitespace-insensitive synonym map: paid/complete/completed/fulfilled/closed/success/settled → `completed`; refund/refunded/returned/chargeback/reversed → `refunded`; cancelled/canceled/void/voided/failed/declined/abandoned → `cancelled` |
 
 ## 5. Hashing & keys
 
-- `file_sha256`: streamed SHA-256 of the input bytes.
-- `transaction_key = sha256("<dataset>|<transaction_id>")`
-- `customer_key = sha256("<dataset>|customer|<customer_id>")`, and likewise for products.
-- `row_hash = sha256(json.dumps(canonical_values, sort_keys=True))`, with floats rounded
-  to 6 dp and dates in ISO format, so the hash survives format changes in the source.
+- `file_sha256`: streamed SHA-256 of the input bytes (batch identity).
+- `key64(text)` = the first 8 bytes of `sha256(text)` as a signed BIGINT.
+- `transaction_key = key64("<dataset>|<transaction_id>")`
+- `customer_key = key64("<dataset>|customer|<customer_id>")`, and likewise for products.
+- `row_hash` = full SHA-256 hex of the normalized canonical values in a fixed field
+  order, joined by U+001F. Floats are rounded to 6 dp, timestamps are ISO, NULL is U+0000.
+  The hash is therefore insensitive to source formatting (`"$1,299.00"` ≡ `1299`).
 
 ## 6. Quarantine & reports
 

@@ -1,0 +1,29 @@
+# Static reference FX rates: USD value of ONE unit of each currency.
+# These are configuration, not live market data. Results stay reproducible offline.
+# Override by passing your own table to the pipeline.
+as_of: "2026-10-31"
+base: USD
+rates_to_usd:
+  USD: 1.0
+  EUR: 1.08
+  GBP: 1.27
+  CAD: 0.73
+  AUD: 0.66
+  NZD: 0.60
+  CHF: 1.13
+  JPY: 0.0067
+  CNY: 0.14
+  INR: 0.012
+  SGD: 0.75
+  HKD: 0.128
+  AED: 0.2723
+  SAR: 0.2667
+  EGP: 0.0205
+  ZAR: 0.055
+  BRL: 0.18
+  MXN: 0.052
+  SEK: 0.095
+  NOK: 0.093
+  DKK: 0.145
+  PLN: 0.25
+  TRY: 0.029
