@@ -92,7 +92,8 @@ company dataset mapped onto one canonical order-line contract. It has four layer
   - The C: drive is nearly full, so keep caches, temp files and pytest temp off it.
     The uv cache already lives off the system drive, and pytest temp goes to the
     git-ignored `.pytest_tmp/`.
-  - Docker Desktop's disk is on C:, so keep images slim and never prune Docker
+  - Docker Desktop's disk image lives off the system drive, on the D: drive. It was
+    moved there on 2026-11-26. Still keep images slim, and never prune Docker
     resources without asking.
 
 ## 3. Architecture and source layout
