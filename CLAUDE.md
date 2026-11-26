@@ -18,7 +18,7 @@ Keep this section current at every phase boundary.
 
 The last verified gate results:
 - `tasks.py check`: all 7 gates pass.
-- `tasks.py test`: 242 tests pass in about 2.5 min, none marked `xfail`.
+- `tasks.py test`: 253 tests pass (95 % statement + branch coverage), none marked `xfail`.
 - `tasks.py docker-smoke`: passes.
 
 Commits are local on `main`. There is no remote, so never push unless the user asks.
@@ -124,13 +124,14 @@ src/bizpulse/
 │                    rfm (1-5 scores, segments, PLAYBOOKS), cohorts (retention, LTV), timeofday
 ├── ml/              forecasting (leak-free LightGBM vs seasonal naive, TimeSeriesSplit, intervals),
 │                    anomaly (z / IQR / expanding IsolationForest, severities, slices, root causes),
+│                    incidents (adjacent alerts -> severity-ranked incidents),
 │                    whatif (6-month simulator, unit economics)
 ├── demo/            deterministic seed=42, 18-month generator (2025-05-01 -> 2026-10-31) for the
 │                    3 verticals: seasonality, retention, ~1-2 % dirty rows, planted anomalies,
 │                    ground-truth manifests
-├── reporting.py     headless decision report (CLI `report`, JSON / text)
+├── reporting.py     headless decision report (CLI `report`: text, JSON, Markdown summary)
 ├── smoke.py         end-to-end self-test in an isolated temp dir (CLI `smoke`, docker-smoke)
-├── dashboard/       Streamlit + Plotly: app.py (sidebar, 5 lazy tabs), state.py (cached read-only
+├── app/             Streamlit + Plotly: app.py (sidebar, 5 lazy tabs), state.py (cached read-only
 │                    loads), charts.py (pure figures), palette.py (validated colors), ingest.py
 │                    (upload helpers), views/ (one module per tab)
 └── cli.py           `bizpulse` entry point
@@ -201,7 +202,7 @@ Other standing decisions:
 - No declared foreign keys; integrity is asserted in tests.
 - When cost data is partial, profit uses an estimated COGS.
 - What-if CAC is an explicit input with default 0, because it is not in the data.
-- Chart colors follow `dashboard/palette.py`: red and amber are reserved for alert
+- Chart colors follow `app/palette.py`: red and amber are reserved for alert
   severity, and there are no dual-axis charts.
 
 ## 5. Standard commands
@@ -224,7 +225,7 @@ Single gates are also available: `eol`, `hygiene`, `size`, `makefile-sync`, `lin
 Each command has a matching `make <command>` target. `make` may not be installed, so
 `tasks.py` is the primary interface.
 
-CLI commands: `bizpulse generate-demo | run-pipeline | runs | report | forecast | whatif | smoke | dashboard`.
+CLI commands: `bizpulse generate-demo | run-pipeline | runs | status | report | forecast | whatif | smoke | dashboard`.
 Run `bizpulse <command> --help` for the options.
 
 ## 6. Workflow and verification protocol

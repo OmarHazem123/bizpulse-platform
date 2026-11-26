@@ -82,7 +82,7 @@ Findings and decisions:
 
 ## Phase 3: CLI, Dashboard, Docker & README ✅
 
-Gate: `tasks.py check` green, `tasks.py test` green (242 tests, no `xfail`, about 2.5 min) and
+Gate: `tasks.py check` green, `tasks.py test` green (253 tests, no `xfail`, 95 % statement + branch coverage) and
 `tasks.py docker-smoke` green.
 
 | Step | Deliverable | Exit criteria | Result |
@@ -107,6 +107,22 @@ Findings and decisions:
     color.
 - **CAC defaults to 0 in the simulator and the CLI.** Acquisition cost is not in the
   data. An invented default made the status quo's contribution negative.
+- **Second pass against the final Phase 3 deliverable list.**
+  - The dashboard package moved to `src/bizpulse/app/`.
+  - New CLI command: `status`. New report option: `--markdown` (executive summary). New
+    task: `tasks.py report`.
+  - Tab 1 gained Gross Revenue and WoW growth tiles, a revenue-and-profit trend, Pareto
+    by product or category, and an executive-summary download.
+  - Tab 3 gained store/channel and company-wide filters, plus a severity-ranked
+    **incident feed**: `ml/incidents.py` groups alerts on adjacent periods. In retail_fb,
+    55 alerts become 33 incidents.
+  - Tab 5 now shows the full quarantined-rows table with the original values.
+  - Missing optional columns are labelled. A single-valued dimension is no longer
+    monitored as a slice, because its alerts duplicated the total's. Demo results are
+    unchanged, since the demo data has no missing dimensions.
+  - `bizpulse smoke` (and therefore `docker-smoke`) now checks the 50 % quality gate and
+    a hostile file: NaN, inf, 1e400, impossible dates, negatives, blanks and no optional
+    columns.
 - **Container.**
   - The demo warehouse is built into the image (about 30 MB) for an instant, deterministic
     first start.

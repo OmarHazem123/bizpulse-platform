@@ -7,7 +7,7 @@ uv run python tasks.py test                      # full suite
 uv run python tasks.py test -m "not slow"        # fast inner loop
 uv run python tasks.py test --cov --cov-report=term-missing
 uv run python tasks.py check                     # every static gate
-uv run bizpulse smoke                            # end-to-end self-test (~18 s)
+uv run bizpulse smoke                            # end-to-end self-test (~20 s)
 uv run python tasks.py docker-smoke              # build the image and verify it (Docker)
 ```
 
@@ -20,7 +20,7 @@ uv run python tasks.py docker-smoke              # build the image and verify it
 | Unit | `tests/unit/` | pure functions: parsing, mapping, hashing, contract rules, KPI math |
 | Component | `tests/component/` | a module with real I/O: readers on real files, loader on a temp DuckDB |
 | Integration | `tests/integration/` (`@pytest.mark.integration`) | generator → pipeline → warehouse → reports, end to end |
-| CLI | `tests/integration/test_cli.py` | every command: `--help` lists them all, `report` text + JSON, `forecast` CSV (LF), `whatif` bounds (exit 2), `smoke`, `dashboard` launch arguments |
+| CLI | `tests/integration/test_cli.py` | every command: `--help` lists them all, `status`, `report` text + JSON + Markdown summary, `forecast` CSV (LF), `whatif` bounds (exit 2), `smoke`, `dashboard` launch arguments |
 | Dashboard | `tests/integration/test_dashboard_app.py` (`streamlit.testing.v1.AppTest`) | every tab × every demo dataset renders with no exception and no error box; filters and simulator levers; empty-warehouse call to action; the full upload flow (upload → mapping preview → load → audit result → new dataset in the sidebar → every tab copes with a 2-row dataset) |
 | Dashboard parts | `tests/unit/test_dashboard_parts.py` | palette roles, chart builders (bands, status markers, folding), upload helpers (safe file names, staging cleanup, mapping pins, config validation) |
 | Container | `tasks.py docker-smoke` | uid 10001, `bizpulse --version`, `bizpulse smoke` inside the image, HEALTHCHECK reaches `healthy`, dashboard answers on the host |
@@ -97,6 +97,16 @@ directory. It never touches `BIZPULSE_DATA_DIR`. It checks:
   rows exactly.
 - **Idempotency:** an identical re-run is `skipped`.
 - **Compaction:** the warehouse is compacted after loading.
+- **Quality gate:** a file with more than 50 % invalid rows fails and loads nothing.
+- **Hostile input:** a file with required columns only (no optional columns) mixes 10
+  valid rows with 8 hostile ones:
+  - `inf`, `-Infinity`, `NaN` and `1e400` amounts;
+  - an unparseable date and an impossible date (Feb 30);
+  - a negative quantity;
+  - a blank customer ID.
+
+  The 10 valid rows load and the 8 hostile rows are quarantined with their reasons. The
+  analytics then run on the small dataset.
 - **Per dataset:**
   - positive net revenue;
   - exactly 30 forecast days with ordered, non-negative bands;
@@ -104,8 +114,16 @@ directory. It never touches `BIZPULSE_DATA_DIR`. It checks:
   - anomaly monitoring at the domain's granularity;
   - a zero-lever what-if equal to the baseline.
 
-It takes about 18 s, both locally and in the container. `tasks.py docker-smoke` runs it
-inside the image.
+The smoke test makes 9 checks and takes about 20 s, both locally and in the container.
+`tasks.py docker-smoke` runs it inside the image, so the invalid-input handling is
+verified in the container too.
+
+The dashboard suite (`test_dashboard_app.py`) uploads the same hostile rows through the
+UI and renders every tab on the result. Unit tests cover:
+
+- incident grouping and ranking (`test_incidents.py`);
+- labels for missing dimensions, skipping of single-valued slices, the quarantine table,
+  per-period profit and the two-series trend (`test_edge_cases.py`).
 
 The dashboard tests found one real bug. `cohort_analysis` crashed on NaN when a fresh
 upload covered only part of one month, so no cohort was complete yet. It is fixed, with

@@ -24,11 +24,13 @@ bizpulse run-pipeline --file my.csv --dataset acme   # auto-detect columns
     → exit 0 on success / success_with_warnings / skipped, 1 on failed
 
 bizpulse runs [--dataset X]                    # run history from meta_pipeline_runs
+bizpulse status                                # warehouse size, datasets, rows, date ranges, last runs
 
-bizpulse report [--dataset X] [--json PATH] [--no-forecast] [--no-anomalies]
+bizpulse report [--dataset X] [--json PATH] [--markdown PATH] [--no-forecast] [--no-anomalies]
     → KPIs (all time, last complete month, MoM / WoW), Pareto, channel / category mix,
       RFM segments with first actions, LTV and retention, peak local hours,
-      forecast backtest summary, anomaly counts and the last 30 days of alerts
+      forecast backtest summary, anomaly counts, the last 30 days of alerts and the
+      top severity-ranked incidents; --markdown writes an executive summary
 bizpulse forecast --dataset X [--horizon 30] [--csv PATH]
     → backtest metrics vs seasonal naive + daily yhat with 80 / 95 % intervals
 bizpulse whatif --dataset X [--retention-pp 2] [--aov-pct 5] [--discount-pp -1]
@@ -67,11 +69,12 @@ Sidebar: [dataset ▼] [date range] [granularity: day/week/month] [refresh]
 │   forecasts, anomaly scoring and the simulator always use the full history.
 │
 ├─ 1. Executive Overview
-│     KPI tiles with sparklines and the change vs. the previous equal-length period
-│     (Net Revenue, Gross Margin %, Net Profit, Orders, AOV, Refund Rate) → MoM growth
-│     and a 30-day forecast preview tile → trend chart (metric selector) → Pareto
-│     cumulative-share curve → orders by local weekday × hour → channel / category /
-│     region mix
+│     executive summary download (Markdown) → KPI tiles with sparklines and the change
+│     vs. the previous equal-length period (Gross Revenue, Net Revenue, Gross Margin %,
+│     Net Profit, Orders, AOV, Refund Rate) → MoM and WoW growth and a 30-day forecast
+│     tile → trend chart (default: net revenue & net profit) → Pareto cumulative-share
+│     curve by product or category → orders by local weekday × hour → channel /
+│     category / region mix
 │
 ├─ 2. Customer & Cohort Intelligence
 │     RFM share-of-customers vs. share-of-revenue bars + table → per-segment action
@@ -80,9 +83,11 @@ Sidebar: [dataset ▼] [date range] [granularity: day/week/month] [refresh]
 │
 ├─ 3. ML Forecasts & Anomaly Alerts
 │     30-day forecast with 80/95 % bands and the seasonal-naive baseline → backtest
-│     tiles, per-fold MAE, metrics table, top features → alert filters (scope,
-│     severity, metric) → CRITICAL / WARNING counts → timeline (total or a store /
-│     channel slice) → alert table → root-cause bars for the selected alert
+│     tiles, per-fold MAE, metrics table, top features → alert filters (severity,
+│     metric, company-wide toggle, stores / regions, channels) → incident, CRITICAL and
+│     WARNING counts → timeline (total or a store / channel slice) → severity-ranked
+│     incident feed (adjacent alerts grouped; company-wide before local) → incident
+│     drill-down: its alerts + root-cause bars
 │
 ├─ 4. What-If Growth Simulator
 │     sliders (retention, AOV, discount, acquisition, frequency) + CAC input (default
@@ -93,9 +98,10 @@ Sidebar: [dataset ▼] [date range] [granularity: day/week/month] [refresh]
       upload CSV / XLSX / Parquet → dataset key, display name, business type,
       currency, timezone, day-first → preview + auto-detected mapping (editable; a
       changed source column is pinned explicitly) → validate and load → result
-      (status, pass rate, row reconciliation, reason chart, quarantine sample,
-      JSON / Markdown downloads) → dataset appears in the sidebar selector →
-      run history with each run's audit report
+      (status, pass rate, row reconciliation, reason chart, the full quarantined-rows
+      table with the original values + CSV, JSON / Markdown downloads) → dataset
+      appears in the sidebar selector → run history with each run's audit report and
+      quarantined rows
 ```
 
 ## 5. Error handling contract

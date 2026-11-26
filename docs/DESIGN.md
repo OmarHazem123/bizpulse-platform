@@ -123,7 +123,7 @@ sorted by count, the column mapping table and a sample of rejected rows.
   granularity. There are 5 tabs.
 - **Tabs.** Executive Overview · Customer & Cohort Intelligence · ML Forecasts &
   Anomaly Alerts · What-If Growth Simulator · Company Data Upload & Quality Audit.
-- **Color is assigned by role, not by taste.** `dashboard/palette.py`:
+- **Color is assigned by role, not by taste.** `app/palette.py`:
   - Categorical series use a fixed, CVD-validated slot order: blue, orange, aqua,
     amber. Light and dark mode each use their own validated steps of the same hues;
     validation covered lightness band, chroma, protan/deutan separation and contrast,
@@ -132,7 +132,7 @@ sorted by count, the column mapping table and a sample of rejected rows.
   - Red and amber are reserved for CRITICAL and WARNING, always paired with an icon and
     a label. The app's accent is therefore set to blue: Streamlit's default red accent
     would make a selected "WARNING" chip look critical.
-- **Chart grammar** (`dashboard/charts.py`):
+- **Chart grammar** (`app/charts.py`):
   - **No dual axes.** Pareto is a cumulative-share curve with an 80 % line, not bars
     plus a second axis. What-if revenue and contribution get two charts.
   - Ranked bars use one hue, and the tail is folded into "Other".
@@ -146,6 +146,23 @@ sorted by count, the column mapping table and a sample of rejected rows.
   share-of-customers vs. share-of-revenue bars, not a treemap. The bars put the
   decision-relevant comparison on one axis, e.g. in the cafe demo, "At Risk = 23 % of
   customers but 35 % of revenue".
+- **Incidents, not alert floods.** One real event raises many alerts: several metrics on
+  the business total, every store / channel it touched, often on consecutive days.
+  `ml/incidents.py` groups alerts on adjacent periods (a gap of at most one day, or one
+  week for SaaS) into one incident. Incidents are ranked by:
+  1. severity;
+  2. company-wide before local;
+  3. |z|;
+  4. recency.
+
+  In retail_fb, 55 alerts become 33 incidents, and the planted store closure reads as one
+  local Riverside incident. The feed, the CLI report and the executive summary all use
+  this ranking.
+- **Missing optional columns.** If a file has no category, channel or region, the column
+  shows as "(not provided)". If it has no product name, the product ID is used. This is
+  applied at analysis time (`analytics.data.prepare`); stored values stay NULL. A
+  dimension with a single value is not monitored as a slice, because its alerts would
+  only duplicate the business-total alerts.
 - **KPI tiles.** Each tile shows a value, a sparkline at the selected granularity and
   the change vs. the previous equal-length period. The change is shown only when that
   period lies inside the data. Rates show the change in percentage points.

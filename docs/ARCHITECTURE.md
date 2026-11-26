@@ -60,10 +60,10 @@ src/bizpulse/
 ├── pipeline.py            # orchestration + run tracking (meta_pipeline_runs)
 ├── demo/                  # deterministic synthetic generator (seed=42)
 ├── analytics/             # data · kpis · rfm · cohorts · timeofday
-├── ml/                    # forecasting · anomaly · whatif
-├── reporting.py           # headless decision report as JSON / text (`bizpulse report`)
+├── ml/                    # forecasting · anomaly · incidents · whatif
+├── reporting.py           # headless decision report: text, JSON, Markdown summary
 ├── smoke.py               # end-to-end self-test (`bizpulse smoke`, docker-smoke)
-├── dashboard/             # Streamlit + Plotly app
+├── app/                   # Streamlit + Plotly dashboard (presentation layer)
 │   ├── app.py             # entry point: sidebar filters, 5 lazily rendered tabs
 │   ├── state.py           # cached, short-lived read-only warehouse access
 │   ├── charts.py          # pure Plotly figure builders (no Streamlit)
@@ -126,8 +126,9 @@ data/
 
 ## 6. Runtime & deployment
 
-- **CLI** (`bizpulse`): data commands (`generate-demo`, `run-pipeline`, `runs`),
-  analysis commands (`report`, `forecast`, `whatif`), `smoke` and `dashboard`.
+- **CLI** (`bizpulse`): data commands (`generate-demo`, `run-pipeline`, `runs`,
+  `status`), analysis commands (`report`, `forecast`, `whatif`), `smoke` and
+  `dashboard`.
 - **Dashboard.** Streamlit runs one script per browser session, and only the open tab
   executes. Every warehouse read opens a short-lived read-only connection, because
   compaction replaces the file. Results are cached per

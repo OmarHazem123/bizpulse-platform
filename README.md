@@ -16,10 +16,53 @@ an e-commerce shop, a SaaS company and a cafe chain.
 
 | Layer | What it does |
 | --- | --- |
-| **Data engineering** | Multi-format ingestion with column auto-detection, currency / date / type normalization, a Pydantic data contract that quarantines bad rows with exact reasons, idempotent SHA-256-keyed loads, a DuckDB star schema with run lineage, and JSON + Markdown data-quality audit reports. |
-| **Analytics / BI** | Gross/net revenue, gross margin, net profit, orders, AOV, MoM/WoW growth, refund rate, Pareto 80/20, RFM segments with action playbooks, monthly cohort retention, empirical LTV, hour-of-day in each business's timezone. |
-| **Data science** | Leak-free LightGBM revenue forecast vs. a seasonal-naive baseline (`TimeSeriesSplit` backtest, 80/95 % intervals); KPI anomaly detection (robust z-score, IQR and an expanding-window IsolationForest) with CRITICAL/WARNING severities, store/channel slices and root-cause attribution; a 6-month what-if and unit-economics simulator. |
+| **Data engineering** | Multi-format ingestion with column auto-detection; currency / date / type normalization; a Pydantic data contract that quarantines bad rows with exact reasons; idempotent SHA-256-keyed loads; a DuckDB star schema with run lineage; JSON + Markdown data-quality audit reports. |
+| **Analytics / BI** | Gross and net revenue, gross margin, net profit, orders, AOV, MoM/WoW growth and refund rate; Pareto 80/20; RFM segments with action playbooks; monthly cohort retention; empirical LTV; hour-of-day in each business's own timezone. |
+| **Data science** | Leak-free LightGBM revenue forecast vs. a seasonal-naive baseline (`TimeSeriesSplit` backtest, 80/95 % intervals). KPI anomaly detection (robust z-score, IQR, expanding-window IsolationForest) with CRITICAL/WARNING severities, store/channel slices, root-cause attribution and severity-ranked incident grouping. A 6-month what-if and unit-economics simulator. |
 | **Product** | `bizpulse` CLI, a 5-tab Streamlit + Plotly dashboard, and a non-root Docker image with a health check. |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph sources["Company data"]
+        A1["CSV / Excel / Parquet<br/>exports"]
+        A2["Deterministic demo generator<br/>(seed 42, 3 verticals)"]
+    end
+    subgraph de["1 · Data engineering"]
+        B1["Read + map<br/>(synonyms, fuzzy, date sniffing)"]
+        B2["Normalize<br/>(amounts, currencies, dates)"]
+        B3{"Data contract<br/>(Pydantic)"}
+        B4["Quarantine<br/>+ audit report"]
+        B5[("DuckDB star schema<br/>fact_transactions · dim_customers<br/>dim_products · dim_date<br/>meta_pipeline_runs")]
+    end
+    subgraph an["2 · Analytics / BI"]
+        C1["KPIs · growth · Pareto"]
+        C2["RFM · cohorts · LTV"]
+    end
+    subgraph ml["3 · Data science"]
+        D1["Forecast<br/>(LightGBM vs. seasonal naive)"]
+        D2["Anomalies → incidents<br/>(root causes, slices)"]
+        D3["What-if simulator"]
+    end
+    subgraph ui["4 · Product"]
+        E1["Streamlit dashboard<br/>(5 tabs)"]
+        E2["bizpulse CLI"]
+        E3["Docker image<br/>(uid 10001, HEALTHCHECK)"]
+    end
+    A1 --> B1
+    A2 --> B1
+    B1 --> B2 --> B3
+    B3 -- valid rows --> B5
+    B3 -- "invalid rows + reasons" --> B4
+    B5 --> C1 & C2 & D1 & D2 & D3
+    C1 & C2 & D1 & D2 & D3 --> E1 & E2
+    E1 -- "upload → same pipeline" --> B1
+```
+
+Layers depend only downward. Analytics and ML read the warehouse through short-lived,
+read-only connections. Dashboard uploads go through the same `run_pipeline()` as the
+CLI. Details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
@@ -47,21 +90,25 @@ Parity between the two is itself a checked gate.
 
 ## Load your own data
 
-Files are mapped to one canonical order-line contract: `transaction_id`, `order_date`,
-`customer_id`, `product_id`, `quantity`, plus `unit_price` or `line_total`. Optional
-fields are `order_id`, `product_name`, `category`, `channel`, `region`, `status`,
-`discount_amount`, `unit_cost`, `fee_amount` and `currency`. Headers are matched by
-synonym, fuzzy matching or date sniffing, and anything can be pinned in a YAML/JSON
-mapping.
+Files are mapped to one canonical order-line contract:
+
+- **Required:** `transaction_id`, `order_date`, `customer_id`, `product_id`, `quantity`,
+  plus `unit_price` or `line_total`.
+- **Optional:** `order_id`, `product_name`, `category`, `channel`, `region`, `status`,
+  `discount_amount`, `unit_cost`, `fee_amount`, `currency`.
+
+Headers are matched by synonym, fuzzy matching or date sniffing, and any of them can be
+pinned in a YAML/JSON mapping.
 
 ```bash
 uv run bizpulse run-pipeline --file my_orders.csv --dataset acme          # auto-detect
 uv run bizpulse run-pipeline --file my_orders.xlsx --mapping acme.yaml    # pinned mapping
-uv run bizpulse runs                                                      # audit trail
+uv run bizpulse status                                                    # warehouse overview
 ```
 
 The dashboard's **Company Data Upload & Quality Audit** tab does the same interactively:
-upload, preview, edit the detected mapping, load, and read the audit report.
+upload, preview, edit the detected mapping, load, then inspect the audit report and every
+quarantined row.
 
 How a run handles bad data:
 
@@ -69,8 +116,9 @@ How a run handles bad data:
   `quantity.non_positive`, and valid rows still load.
 - If more than 50 % of the rows fail, nothing loads, because the mapping is probably
   wrong.
-- Re-sending the same file is `skipped`.
-- Re-sending changed rows updates only those rows.
+- Re-sending the same file is `skipped`, and changed rows update only those rows.
+- Hostile values are quarantined, never loaded. This covers `NaN`, `inf`, `1e400`,
+  impossible dates, negative quantities and blank IDs.
 
 ## CLI
 
@@ -78,40 +126,44 @@ How a run handles bad data:
 | --- | --- |
 | `bizpulse generate-demo [--scale 1.0] [--seed 42]` | deterministic demo data: CSV, Excel, Parquet, plus ground-truth manifests |
 | `bizpulse run-pipeline --all \| --file F (--dataset D \| --mapping M) [--force]` | ingest, validate, quarantine, load, compact |
+| `bizpulse status` | warehouse size, datasets, row counts, date ranges, last runs |
 | `bizpulse runs [--dataset D]` | pipeline run history (lineage) |
-| `bizpulse report [--dataset D] [--json PATH]` | KPIs, growth, Pareto, mix, RFM with first actions, LTV/retention, peak hours, forecast backtest, recent alerts |
+| `bizpulse report [--dataset D] [--json PATH] [--markdown PATH]` | KPIs, growth, Pareto, mix, RFM actions, LTV, forecast backtest, ranked incidents; JSON export or a Markdown executive summary |
 | `bizpulse forecast --dataset D [--horizon 30] [--csv PATH]` | daily forecast with 80/95 % bands and backtest metrics |
 | `bizpulse whatif --dataset D --retention-pp 2 --aov-pct 5 --cac 40` | 6-month scenario vs. status quo and unit economics |
-| `bizpulse smoke` | end-to-end self-test on small demo data in an isolated temp dir |
+| `bizpulse smoke` | end-to-end self-test on small demo data plus hostile input, in an isolated temp dir |
 | `bizpulse dashboard [--port 8501] [--demo-if-empty]` | start the dashboard |
 
 ## Dashboard
 
 1. **Executive Overview.**
-   - KPI tiles with sparklines and the change vs. the previous period.
-   - MoM growth and a 30-day forecast tile.
-   - A trend chart (metric selector).
-   - A Pareto curve.
-   - Orders by local weekday and hour.
-   - Channel, category and region mix.
+   - KPI tiles with sparklines and the change vs. the previous period: gross revenue, net
+     revenue, gross margin, net profit, orders, AOV, refund rate.
+   - MoM and WoW growth, and a 30-day forecast tile.
+   - A revenue-and-profit trend.
+   - Pareto 80/20 by product or category.
+   - Orders by local weekday and hour, and channel/category/region mix.
+   - A downloadable executive summary.
 2. **Customer & Cohort Intelligence.**
    - RFM segments, comparing share of customers with share of revenue.
    - An action playbook per segment, plus a customer-list CSV.
    - A cohort retention heatmap.
    - LTV curves.
 3. **ML Forecasts & Anomaly Alerts.**
-   - The forecast with its intervals and the seasonal-naive baseline.
-   - Backtest folds, metrics and top features.
-   - Alerts filtered by scope, severity and metric.
-   - A timeline per business total or per store/channel slice.
-   - Root-cause bars for the selected alert.
+   - The forecast with 80/95 % intervals and the seasonal-naive baseline.
+   - MAE / RMSE / MAPE / sMAPE vs. the baseline, per-fold errors and top features.
+   - Alerts filtered by severity, metric, company-wide and store/channel.
+   - A **severity-ranked incident feed**. Alerts on adjacent days are grouped, so a broad
+     outage reads as one line, not twenty.
+   - An incident drill-down with root-cause bars.
 4. **What-If Growth Simulator.**
    - Retention, AOV, discount, acquisition and frequency levers, plus a CAC input.
    - Status quo vs. scenario for net revenue and contribution.
    - Unit economics: LTV, LTV:CAC and payback.
 5. **Company Data Upload & Quality Audit.**
    - Upload, mapping editor, validation and load.
-   - The audit report with JSON/Markdown downloads.
+   - The audit report and the full quarantined-rows table, with JSON/Markdown/CSV
+     downloads.
    - Run history.
 
 How the dashboard behaves:
@@ -122,6 +174,8 @@ How the dashboard behaves:
   - Red and amber are reserved for CRITICAL and WARNING, always with an icon and a label.
   - Light and dark mode use separately validated steps.
 - **Accessibility.** Every chart has a table view.
+- **Small or partial data.** Empty slices, missing optional columns and tiny datasets
+  show explanations instead of errors.
 
 ## Measured results
 
@@ -152,13 +206,25 @@ weekly scope.
   asserted by a test.
 - **Quiet data:** synthetic data with no incidents never produces a CRITICAL. Also
   asserted.
+- **Incident grouping:** in retail_fb, 55 alerts become 33 ranked incidents.
 
-**Data quality.**
+**Data quality and ingestion.**
 
 - The generator plants about 1–2 % dirty rows, each with exactly one defect.
 - The quarantine equals the ground-truth manifest **row for row, reason for reason**.
 - Pass rates: 98.80 % (ecommerce), 98.84 % (saas), 98.82 % (retail_fb).
-- The generator is byte-identical across runs.
+- Throughput, including normalization, contract validation and the transactional load:
+
+  | Dataset | Format | Rows | Time | Throughput |
+  | --- | --- | ---: | ---: | ---: |
+  | ecommerce | CSV | 45,463 | 5.9 s | about 7,700 rows/s |
+  | retail_fb | Parquet | 70,318 | 9.2 s | about 7,600 rows/s |
+  | saas | Excel | 7,329 | 3.0 s | about 2,500 rows/s (the Excel reader is the bottleneck) |
+
+- Re-loading an identical file is skipped after a file-hash check, without
+  re-processing.
+- The warehouse is 22 MB after compaction. All generated artifacts total about 29 MB,
+  under the 50 MB budget.
 
 **KPI snapshot.**
 
@@ -168,31 +234,58 @@ weekly scope.
 | saas | $3.56M | 76.9 % | |
 | retail_fb | €305k | 73.7 % | peak local hours 08:00 and 13:00 (Europe/Berlin; UTC storage would suggest 06:00 / 11:00) |
 
-**Performance.**
+**Model and dashboard timings.**
 
 | Operation | Time |
 | --- | ---: |
-| Generate the demo data (123k rows, 3 formats) | about 9–12 s |
-| Load all three datasets incl. validation and compaction | about 26 s |
 | Forecast with backtest | 1.2–1.4 s per dataset |
 | Anomaly scoring | 2.5–5.8 s per dataset |
-| `bizpulse smoke` | about 18 s |
+| Dashboard tabs | 0.1–2.5 s for BI tabs, up to 4.7 s the first time the ML tab opens (cached afterwards) |
 
-The warehouse is 22 MB after compaction. All generated artifacts total about 29 MB, under
-the 50 MB budget.
+**Tests and container.**
 
-**Container.**
+- **Tests:** 253 pass, with no `xfail`. Coverage is 95 % (statements + branches). They
+  cover:
+  - unit, component and integration tests;
+  - the CLI;
+  - the dashboard through Streamlit `AppTest`: every tab × every dataset, the upload
+    flow, and hostile uploads;
+  - the full-scale ML acceptance criteria.
+- **`bizpulse smoke`:** 9 end-to-end checks in about 20 s:
+  - all three formats;
+  - quarantine vs. manifest;
+  - idempotency;
+  - the quality gate;
+  - hostile input;
+  - compaction;
+  - analytics, forecast, anomalies and what-if per dataset.
+- **`tasks.py docker-smoke`:** it checks that:
+  - the container runs as uid 10001;
+  - `bizpulse --version` works;
+  - `bizpulse smoke` passes inside the image;
+  - the HEALTHCHECK reaches `healthy`;
+  - the dashboard answers on the host.
 
-- The image is 1.11 GB, of which the Python environment is 659 MB and pyarrow alone 166 MB.
-- It reports healthy about 12 s after start.
-- With an empty volume mounted over `/app/data` it rebuilds the demo data first and
-  reports healthy after about 44 s.
-- `tasks.py docker-smoke` finishes in about 55 s with a warm build cache, or 3–4 min
-  cold.
+  It finishes in about 1 min with a warm build cache, or 3–4 min cold.
+- **Container startup:** the image is 1.11 GB, of which the Python environment is 659 MB
+  and pyarrow alone 166 MB.
+  - It reports healthy about 12 s after start.
+  - With an empty volume mounted over `/app/data`, it rebuilds the demo data first and
+    reports healthy after about 44 s.
 
-**Tests.** 242 pytest tests pass in about 2.5 minutes, with no `xfail`. They cover
-unit, component and integration tests, the CLI, the dashboard (Streamlit `AppTest`)
-and the full-scale ML acceptance criteria. `tasks.py docker-smoke` comes on top.
+## Design trade-offs
+
+| Decision | Why | Cost accepted |
+| --- | --- | --- |
+| DuckDB single-file star schema | columnar OLAP speed, ACID, zero ops, native pandas interop | single writer; not a multi-tenant server |
+| 64-bit SHA-256-derived surrogate keys, plus a full SHA-256 row hash for change detection | deterministic and idempotent across machines; warehouse 58 MB → 22 MB vs. hex keys | collision odds ≈ N²/2⁶⁵ (≈ 3e-8 at 1M rows); a collision fails loudly on the primary key, never merges rows |
+| Quarantine instead of reject, with a 50 % gate | one bad row never blocks a load, but a wrong mapping can't half-load a file | the threshold is a judgment call (configurable per mapping) |
+| Naive UTC storage + per-dataset timezone at query time | canonical, comparable timestamps; correct local hour-of-day (a café's 08:00 peak, not 06:00) | every hour-of-day view must localize explicitly |
+| Recursive LightGBM on a ratio-to-level target | learns weekly / annual shape and scales with the business; strictly past-only features | 18 months teach a once-a-year peak from a single occurrence |
+| Rule-based + expanding-window IsolationForest anomalies | explainable (z-score, IQR), severities never change after the fact | two post-hoc amendments were needed; severity grading is weaker than detection |
+| Weekly monitoring for SaaS | billing calendars make daily totals lumpy (days 29–31) | a one-day SaaS incident surfaces at week granularity |
+| Steady-state what-if on trailing 3-month averages | transparent and exactly reproducible (zero levers = baseline) | a reasoning tool, not a forecast; CAC is an explicit assumption |
+| Demo warehouse baked into the image | instant, deterministic first start | about 30 MB in the image; `--demo-if-empty` rebuilds it on an empty volume |
 
 ## Engineering standards
 
@@ -209,33 +302,26 @@ Beyond that, `tasks.py test` runs pytest and `tasks.py docker-smoke` builds the 
 and verifies it. Everything is reproducible:
 
 - The demo data is seeded and its window is fixed.
-- Surrogate keys are deterministic: 64-bit keys derived from SHA-256, plus a full SHA-256
-  row hash.
+- Surrogate keys are deterministic.
 - The models are seeded.
 - The wall clock is never used for analysis dates.
 
 ## Limitations
 
 - **The anomaly rule was amended after the fact.** The pre-registered rule reached 4/7.
-  Two amendments, approved and documented in `docs/TECHNICAL-REQUIREMENTS.md` §7.1,
-  brought recall to 7/7:
-  - two-tailed log-scale scoring;
-  - weekly monitoring for SaaS, an expanding-window IsolationForest, calibrated
-    severities, and slice monitoring.
-
-  Severity agreement with the planted expectations is **3/7**. Detection is reliable;
-  the CRITICAL vs. WARNING grading is not yet.
+  Two approved and documented amendments brought recall to 7/7
+  ([TECHNICAL-REQUIREMENTS §7.1](docs/TECHNICAL-REQUIREMENTS.md)). Severity agreement
+  with the planted expectations is **3/7**. Detection is reliable; the CRITICAL vs.
+  WARNING grading is not yet.
 - **The intervals are slightly narrow.** About 72–74 % of days fall inside the nominal
   80 % band, and about 89–91 % inside the 95 % band.
 - **18 months cannot teach a model a once-a-year event.** For example, a Black Friday
   peak is learned from a single occurrence.
-- **The what-if is a steady-state model,** built on trailing 3-month averages. It is a
-  reasoning tool, not a forecast.
 - **CAC is not in the data.** It is an explicit input, and LTV:CAC and payback depend
   entirely on it.
 - **FX rates are a static reference table,** for reproducibility.
-- **Single-node design.** DuckDB is a single file. The dashboard is intended for one
-  team, not for concurrent multi-tenant writes.
+- **Single-node design.** DuckDB is a single file, and the dashboard is intended for one
+  team.
 
 ## Documentation
 
@@ -246,6 +332,7 @@ and verifies it. Everything is reproducible:
 - [App flow](docs/APP-FLOW.md)
 - [Implementation plan](docs/IMPLEMENTATION-PLAN.md): with measured results per phase.
 - [Testing guide](docs/TESTING-GUIDE.md)
+- [CLAUDE.md](CLAUDE.md): engineering rules for AI-assisted sessions.
 
 ## License
 
