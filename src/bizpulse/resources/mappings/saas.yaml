@@ -6,6 +6,7 @@ domain: saas
 reporting_currency: USD
 default_currency: USD
 dayfirst: true
+timezone: UTC
 columns:
   transaction_id: Line Ref
   order_id: Invoice No

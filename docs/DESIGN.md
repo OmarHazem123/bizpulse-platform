@@ -95,6 +95,21 @@ read_options:
   order, joined by U+001F. Floats are rounded to 6 dp, timestamps are ISO, NULL is U+0000.
   The hash is therefore insensitive to source formatting (`"$1,299.00"` ≡ `1299`).
 
+**Key-size trade-off (approved).** Surrogate and join keys keep 64 of SHA-256's 256 bits.
+They are deterministic and fully reproducible like the full hash, but the primary-key
+indexes and joins work on 8-byte integers instead of 64-character strings. Measured
+result: the warehouse went from 58 MB to 22 MB. By the birthday bound, the probability
+of any collision among N keys is ≈ N² / 2⁶⁵:
+
+| Rows per warehouse | Collision probability |
+| ---: | ---: |
+| 100 k | 2.7 × 10⁻¹⁰ |
+| 1 M | 2.7 × 10⁻⁸ |
+| 100 M | 2.7 × 10⁻⁴ |
+
+A collision would make the PRIMARY KEY reject the load loudly. It would never merge
+rows silently. Change detection (`row_hash`) keeps the full 256-bit SHA-256.
+
 ## 6. Quarantine & reports
 
 `QualityIssue(field, code, message, value)`. A quarantined row stores the 1-based data-row

@@ -5,6 +5,7 @@ domain: retail_fb
 reporting_currency: EUR
 default_currency: EUR
 dayfirst: true
+timezone: Europe/Berlin
 anonymous_customer_ids: [GUEST]
 composite_keys:
   transaction_id: [ticket_id, line_no]

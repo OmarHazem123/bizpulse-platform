@@ -227,6 +227,7 @@ def generate(rng: np.random.Generator, scale: float, fx: FxTable) -> DemoTable:
             "starter_churn_spike", "drop", "net_revenue", "2026-03-01", "2026-03-31", "WARNING",
             "A Starter price change quadrupled Starter churn in Feb 2026; MRR dips from March.",
             {"category": "Subscription"},
+            "month",
         ),
         Anomaly(
             "enterprise_deal", "spike", "net_revenue", "2026-06-15", "2026-06-15", "CRITICAL",

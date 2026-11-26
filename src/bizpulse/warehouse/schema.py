@@ -145,15 +145,22 @@ DDL: Final[tuple[str, ...]] = (
         domain              VARCHAR NOT NULL,
         reporting_currency  VARCHAR NOT NULL,
         mapping_json        VARCHAR NOT NULL,
-        updated_at          TIMESTAMP NOT NULL
+        updated_at          TIMESTAMP NOT NULL,
+        timezone            VARCHAR NOT NULL DEFAULT 'UTC'
     )
     """,
     f"CREATE INDEX IF NOT EXISTS idx_runs_dataset_hash ON {META_RUNS} (dataset, file_sha256)",
 )
 
 
+#: Idempotent migrations for warehouses created by older versions.
+MIGRATIONS: Final[tuple[str, ...]] = (
+    f"ALTER TABLE {META_DATASETS} ADD COLUMN IF NOT EXISTS timezone VARCHAR DEFAULT 'UTC'",
+)
+
+
 def create_schema(con: duckdb.DuckDBPyConnection) -> None:
-    for statement in DDL:
+    for statement in (*DDL, *MIGRATIONS):
         con.execute(statement)
 
 

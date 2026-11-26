@@ -135,6 +135,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "scikit-learn" },
     { name = "streamlit" },
+    { name = "tzdata" },
 ]
 
 [package.dev-dependencies]
@@ -161,6 +162,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "scikit-learn", specifier = ">=1.5,<2" },
     { name = "streamlit", specifier = ">=1.38,<2" },
+    { name = "tzdata", specifier = ">=2024.1" },
 ]
 
 [package.metadata.requires-dev]

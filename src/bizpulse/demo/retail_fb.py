@@ -16,6 +16,7 @@ import pandas as pd
 from bizpulse.demo.common import Anomaly, DemoTable, hour_weights, seasonal_multiplier, window_days
 from bizpulse.ingestion.fx import FxTable
 
+TIMEZONE = "Europe/Berlin"
 STORES = ("Downtown", "Riverside", "Airport")
 STORE_CODE = {"Downtown": "DT", "Riverside": "RV", "Airport": "AP"}
 STORE_BASE = {"Downtown": 26.0, "Riverside": 20.0, "Airport": 22.0}
@@ -221,10 +222,13 @@ def generate(rng: np.random.Generator, scale: float, fx: FxTable) -> DemoTable:
 
     rng_fmt = rng.random((2, len(lines)))
     line_ts: pd.Series[pd.Timestamp] = lines["ts"]
-    offset = np.where(line_ts.dt.month.between(4, 10), "+02:00", "+01:00")
+    # Local store time -> real Europe/Berlin offsets (DST switches on the last Sunday of
+    # March/October). Opening hours never fall in the 02:00-03:00 transition window.
+    aware = line_ts.dt.tz_localize(TIMEZONE, ambiguous="raise", nonexistent="raise")
+    raw_offset = aware.dt.strftime("%z")
+    offset = (raw_offset.str[:3] + ":" + raw_offset.str[3:]).to_numpy().astype(object)
     local_iso = line_ts.dt.strftime("%Y-%m-%dT%H:%M:%S").to_numpy().astype(object) + offset
-    shift = pd.Series(np.where(offset == "+02:00", 2, 1), index=line_ts.index)
-    utc: pd.Series[pd.Timestamp] = line_ts - pd.to_timedelta(shift, unit="h")
+    utc: pd.Series[pd.Timestamp] = aware.dt.tz_convert("UTC").dt.tz_localize(None)
     utc_z = utc.dt.strftime("%Y-%m-%dT%H:%M:%SZ").to_numpy()
     utc_dayfirst = utc.dt.strftime("%d/%m/%Y %H:%M:%S").to_numpy()
     ts_text = np.where(

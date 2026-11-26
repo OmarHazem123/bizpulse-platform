@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import yaml
@@ -144,6 +145,9 @@ class MappingConfig(BaseModel):
     date_format: str | None = None
     negative_quantity_as_refund: bool = False
     anonymous_customer_ids: tuple[str, ...] = ()
+    #: IANA business timezone, used only to localize hour-of-day analytics.
+    #: Warehouse timestamps always stay canonical naive UTC.
+    timezone: str = "UTC"
     max_quarantine_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
     columns: dict[CanonicalField, str] = Field(default_factory=dict)
     composite_keys: dict[CanonicalField, list[str]] = Field(default_factory=dict)
@@ -159,6 +163,15 @@ class MappingConfig(BaseModel):
         if not re.fullmatch(r"[A-Z]{3}", upper):
             raise ValueError(f"invalid currency code {value!r}")
         return upper
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown IANA timezone {value!r}") from exc
+        return value
 
     @field_validator("status_values")
     @classmethod

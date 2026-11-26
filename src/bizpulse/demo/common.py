@@ -83,6 +83,9 @@ class Anomaly:
     expected_severity: Literal["CRITICAL", "WARNING"]
     description: str
     slice: dict[str, str] | None = None
+    #: "day" anomalies are point/short events for daily detectors; "month" anomalies
+    #: are slow drifts surfaced by cohort/retention analytics instead.
+    granularity: Literal["day", "month"] = "day"
 
 
 @dataclass

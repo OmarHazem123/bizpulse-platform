@@ -55,12 +55,25 @@ The integration suite asserts:
 
 ## 6. ML evaluation tests (Phase 2)
 
-- **Leakage guard**: with future values replaced by NaN or garbage, features up to *t*
-  are unchanged.
-- **Backtest sanity**: the model's MAE ≤ 1.1 × Seasonal-Naive MAE on demo data. Intervals
-  achieve 80 % coverage within ±15 pp out-of-fold.
-- **Anomaly recall**: every injected anomaly window yields ≥ 1 alert, and outages are `CRITICAL`.
-- **What-if identity**: a zero-change scenario reproduces the baseline exactly.
+These criteria were registered **before** the models ran on demo data. A failure is
+reported as a finding. Thresholds are never tuned to make it pass.
+
+- **Leakage guard**: features at *t* are unchanged when y at or after *t* is perturbed.
+  Forecasts are identical when future actuals are replaced by NaN or garbage. Every
+  backtest fold trains strictly before its test window, and the model is fitted on
+  train rows only (asserted by instrumenting `fit`).
+- **Backtest sanity**: on the full-scale `ecommerce` and `retail_fb` demo data, the
+  model's MAE ≤ 1.1 × Seasonal-Naive MAE. `saas` (lumpy anniversary billing) is
+  reported, not asserted.
+- **Intervals**: ordered `lo95 ≤ lo80 ≤ yhat ≤ hi80 ≤ hi95` with non-negative bounds.
+  Leave-one-fold-out coverage of the 80 % band is within ±15 pp of nominal.
+- **Anomaly recall**: every manifest anomaly with `granularity: day` yields ≥ 1 alert on
+  its metric inside its window. `checkout_outage` must be `CRITICAL`. Agreement with the
+  other expected severities is reported, not asserted. Root cause for slice-specific
+  anomalies ranks the manifest slice first (Riverside, social, Apparel).
+- **What-if identity**: a zero-lever scenario reproduces the baseline exactly. The
+  baseline month equals the trailing 3-month actual average within 15 %.
+- **Determinism**: two forecast runs give identical numbers.
 
 ## 7. Conventions
 

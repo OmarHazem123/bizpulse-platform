@@ -25,6 +25,7 @@ dependencies = [
   "pyyaml>=6.0,<7",
   "scikit-learn>=1.5,<2",
   "streamlit>=1.38,<2",
+  "tzdata>=2024.1",  # IANA database for zoneinfo on Windows / slim images
 ]
 
 [project.scripts]

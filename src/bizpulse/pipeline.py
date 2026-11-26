@@ -136,13 +136,17 @@ def _insert_quarantine(
 
 def _upsert_dataset(con: duckdb.DuckDBPyConnection, config: MappingConfig, when: datetime) -> None:
     con.execute(
-        f"""INSERT INTO {META_DATASETS} VALUES (?, ?, ?, ?, ?, ?)
+        f"""INSERT INTO {META_DATASETS}
+                (dataset, display_name, domain, reporting_currency, mapping_json, updated_at,
+                 timezone)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (dataset) DO UPDATE SET
                 display_name = excluded.display_name,
                 domain = excluded.domain,
                 reporting_currency = excluded.reporting_currency,
                 mapping_json = excluded.mapping_json,
-                updated_at = excluded.updated_at""",
+                updated_at = excluded.updated_at,
+                timezone = excluded.timezone""",
         [
             config.dataset,
             config.label,
@@ -150,6 +154,7 @@ def _upsert_dataset(con: duckdb.DuckDBPyConnection, config: MappingConfig, when:
             config.reporting_currency,
             config.model_dump_json(),
             when,
+            config.timezone,
         ],
     )
 

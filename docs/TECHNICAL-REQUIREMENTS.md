@@ -44,6 +44,23 @@ Every amount column is parsed independently, so an amount that is unparseable
 or negative in a non-required column (`discount_amount`, `unit_cost`, `fee_amount`)
 also quarantines the row.
 
+### Quality gate (approved safety guard)
+
+Valid rows load and invalid rows are quarantined, **unless the batch looks
+structurally broken**. When the quarantine ratio exceeds `max_quarantine_ratio`
+(default **0.5**, configurable per mapping, `0.0`–`1.0`), the run is marked
+`failed` and **nothing** is loaded. A wrong column mapping or the wrong file usually
+invalidates most rows, and loading the minority that happens to parse would silently
+corrupt KPIs. The audit report and `meta_quarantine` are still written, so the cause is
+diagnosable. Set `max_quarantine_ratio: 1.0` to always load valid rows.
+
+### Timestamps and time zones (approved)
+
+All warehouse timestamps are canonical **naive UTC**. Each dataset declares an IANA
+`timezone` in its mapping (default `UTC`; demo: `retail_fb` = `Europe/Berlin`), stored
+in `meta_datasets.timezone`. Hour-of-day and weekday analytics localize UTC to that
+zone at query time (DST-aware via `zoneinfo` + `tzdata`). Stored data never changes.
+
 ## 3. Ingestion
 
 | ID | Requirement |
@@ -101,11 +118,13 @@ and **R** the refunded rows. Cancelled rows are stored but excluded from every K
 | Discounts | `Σ_S discount_amount` |
 | Refunds | `Σ_R net_amount` |
 | **Net Revenue** | `Gross − Discounts − Refunds = Σ_C net_amount` |
-| COGS | `Σ_C cost_amount`. Refunded goods are assumed returned, so no COGS. |
-| Gross Profit | `Σ_C (net_amount − cost_amount)` over rows with known cost |
-| **Gross Margin %** | `Gross Profit / Σ_C net_amount` over rows with known cost. NULL if no costs. The report states cost coverage. |
+| COGS (known) | `Σ_C cost_amount` over rows with known cost. Refunded goods are assumed returned, so no COGS. |
+| Cost coverage | `Σ_C net_amount` (cost known) `/ Net Revenue` |
+| **Gross Margin %** | `Σ_C (net_amount − cost_amount) / Σ_C net_amount` over rows with known cost. NULL if no costs. |
+| COGS (estimated) | `Net Revenue × (1 − Gross Margin %)`, which extrapolates the known margin to cost-unknown rows so profit is not overstated. It equals COGS (known) at 100 % coverage. |
+| Gross Profit | `Net Revenue − COGS (estimated)` |
 | Fees | `Σ_S fee_amount`. Processing fees are not returned on refunds. |
-| **Net Profit (contribution)** | `Net Revenue − COGS − Fees`. Contribution-level, because operating expenses are not in transactional data. |
+| **Net Profit (contribution)** | `Gross Profit − Fees`. Contribution-level, because operating expenses are not in transactional data. NULL when no costs are known. |
 | Order Count | `COUNT DISTINCT order_id` over **S** |
 | **AOV** | `(Gross Revenue − Discounts) / Order Count`, the value at purchase time |
 | Refund Rate | `Refunds / (Gross Revenue − Discounts)`, value-based. The order-based rate is reported alongside. |
@@ -118,12 +137,25 @@ and **R** the refunded rows. Cancelled rows are stored but excluded from every K
 | ID | Requirement |
 | --- | --- |
 | TR-AN-01 | RFM: quintile scores (R reversed), ties broken by rank. The R×F grid partitions into Champions / Loyal Customers / Potential Loyalists / New Customers / At Risk / Hibernating-Lost, each with an action playbook. Anonymous customers are excluded. |
-| TR-AN-02 | Cohorts: monthly acquisition cohort (first order in **S**), retention matrix `active(c, k) / size(c)`, cumulative net-revenue LTV per customer at months 1, 3, 6 and 12. |
+| TR-AN-02 | Cohorts: monthly acquisition cohort (first non-cancelled order, computed from facts, not `dim_customers`), retention matrix `active(c, k) / size(c)`, cumulative net-revenue LTV per customer at months 1, 3, 6 and 12. Right-censored cells (beyond the data end) are NaN, and LTV@k only uses cohorts with k complete months observed. |
+| TR-AN-03 | Time of day: hour × weekday profiles localize UTC to the dataset timezone (DST-aware). The as-of date always comes from the data (`max(order_date) + 1 day`), never the wall clock. |
 | TR-ML-01 | Daily net-revenue forecast, 30-day horizon, recursive LightGBM on lag/rolling/calendar features vs. a Seasonal-Naive (7-day) baseline. |
 | TR-ML-02 | Backtest with `TimeSeriesSplit` (fixed 30-day test folds). Features at time *t* use data `< t` only. Multi-step predictions are recursive, never fed actuals. |
 | TR-ML-03 | Metrics MAE, RMSE, MAPE (non-zero actuals), sMAPE for model and baseline. 80 %/95 % intervals from empirical out-of-fold residual quantiles per horizon step. |
-| TR-ML-04 | Anomalies on daily KPIs (net revenue, orders, AOV, refund rate): rolling z-score and IQR on a trailing window that excludes the current day, plus IsolationForest. Severity is `CRITICAL` or `WARNING`. Root cause ranks category/channel/segment slices by deviation from their own baseline. |
+| TR-ML-04 | Anomalies on daily KPIs (net revenue, orders, AOV, refund rate). The rules are pre-registered in §7.1 below. Root cause ranks category / channel / region / customer-type slices by their deviation from their own baseline. |
 | TR-ML-05 | What-if: 6-month projection from a trailing baseline with levers for retention, AOV, discount, new-customer volume and order frequency. Outputs revenue, gross profit, contribution, customers, LTV, LTV:CAC and payback. |
+
+### 7.1 Anomaly rules (pre-registered before running on demo data)
+
+| Step | Rule |
+| --- | --- |
+| Baseline | Revenue and orders: median of the same weekday over the previous 4 weeks (handles weekly seasonality). AOV and refund rate: median of the previous 28 days. The current day is always excluded. |
+| Deviation | `dev = (x − baseline) / baseline` |
+| Robust z | `(dev − median(dev_hist)) / (1.4826 · MAD(dev_hist))` over the trailing 56 days, excluding the current day |
+| Methods | **z-score**: `|z| ≥ 3.5`. **IQR**: `dev` outside `[Q1 − 3·IQR, Q3 + 3·IQR]` of the trailing 56-day `dev`. **IsolationForest** (multivariate robust-z vector, contamination 0.02, seed 42) only corroborates and never alerts on its own. |
+| Severity | **CRITICAL**: `|z| ≥ 6`, or (≥ 2 methods agree **and** `|dev| ≥ 30 %`). **WARNING**: any other z-score/IQR flag. |
+| Volume guard | AOV and refund rate are only scored on days with ≥ 20 orders and ≥ 25 % of the median daily order count. |
+| Warm-up | A metric is scored only once ≥ 28 days of deviation history exist. |
 
 ## 8. Performance targets (local laptop)
 

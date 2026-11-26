@@ -5,6 +5,7 @@ domain: ecommerce
 reporting_currency: USD
 default_currency: USD
 dayfirst: false
+timezone: UTC  # export timestamps carry no offset
 columns:
   transaction_id: Line ID
   order_id: Order Number
