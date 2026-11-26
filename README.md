@@ -20,8 +20,8 @@ an e-commerce shop, a SaaS company and a cafe chain.
 </picture>
 
 *The Executive Overview on the bundled demo e-commerce data. Every screenshot in this
-README is the real dashboard running on that data, and this one follows your GitHub
-light or dark theme.*
+README is the real dashboard running on the bundled demo data, and this one follows
+your GitHub light or dark theme.*
 
 | Layer | What it does |
 | --- | --- |
