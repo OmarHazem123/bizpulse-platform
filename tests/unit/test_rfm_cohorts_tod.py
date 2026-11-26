@@ -113,6 +113,17 @@ def test_ltv_at_uses_only_fully_observed_cohorts(cohort_tx: pd.DataFrame) -> Non
     assert curve.iloc[1] == pytest.approx((0.5 * 2 + 1.0 * 1) / 3)
 
 
+def test_cohorts_when_no_month_is_complete_yet() -> None:
+    # Regression: a fresh upload covering part of one month crashed with a NaN horizon.
+    tx = make_tx(
+        {"ts": "2026-03-01", "customer_id": "C1"}, {"ts": "2026-03-02", "customer_id": "C2"}
+    )
+    result = cohort_analysis(tx)
+    assert result.sizes.empty and result.retention.empty and result.ltv.empty
+    assert ltv_at(result) == {1: None, 3: None, 6: None, 12: None}
+    assert average_retention_curve(result).empty
+
+
 def test_partial_last_month_is_not_complete() -> None:
     tx = make_tx({"ts": "2026-01-15"}, {"ts": "2026-03-14"})
     assert str(last_complete_month(tx).date()) == "2026-02-01"

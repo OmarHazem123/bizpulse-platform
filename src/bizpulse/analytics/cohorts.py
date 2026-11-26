@@ -61,6 +61,9 @@ def cohort_analysis(tx: pd.DataFrame) -> CohortResult:
 
     sizes = cohort_of.value_counts().sort_index().astype("int64")
     sizes = sizes[sizes.index <= final]
+    if sizes.empty:  # every cohort started in the current, incomplete month
+        empty = pd.DataFrame()
+        return CohortResult(pd.Series(dtype="int64"), empty, empty, empty, final)
     cohorts = sizes.index
     horizon = int(_months_between(pd.Series([final]), pd.Series([cohorts.min()])).iloc[0]) + 1
     columns = pd.RangeIndex(horizon, name="months_since")
