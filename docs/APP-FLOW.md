@@ -24,8 +24,24 @@ bizpulse run-pipeline --file my.csv --dataset acme   # auto-detect columns
     → exit 0 on success / success_with_warnings / skipped, 1 on failed
 
 bizpulse runs [--dataset X]                    # run history from meta_pipeline_runs
-bizpulse smoke                                 # Phase 3: end-to-end self-test (used by docker-smoke)
+
+bizpulse report [--dataset X] [--json PATH] [--no-forecast] [--no-anomalies]
+    → KPIs (all time, last complete month, MoM / WoW), Pareto, channel / category mix,
+      RFM segments with first actions, LTV and retention, peak local hours,
+      forecast backtest summary, anomaly counts and the last 30 days of alerts
+bizpulse forecast --dataset X [--horizon 30] [--csv PATH]
+    → backtest metrics vs seasonal naive + daily yhat with 80 / 95 % intervals
+bizpulse whatif --dataset X [--retention-pp 2] [--aov-pct 5] [--discount-pp -1]
+                [--new-customers-pct 10] [--frequency-pct 3] [--cac 40] [--months 6]
+    → month-by-month scenario vs status quo, totals, unit economics
+    → exit 2 when a lever is outside its bounds
+
+bizpulse smoke [--scale 0.1] [--work-dir DIR]  # end-to-end self-test in an isolated temp dir
+bizpulse dashboard [--port 8501] [--address 0.0.0.0] [--headless] [--demo-if-empty]
 ```
+
+`report`, `forecast` and `whatif` exit 1 with a "load data first" hint when the
+warehouse is empty, and with the list of available datasets for an unknown name.
 
 ## 3. Pipeline state machine (one run)
 
@@ -43,31 +59,43 @@ start ─►│ running ├─────────────────�
              └──────────────► success_with_warnings
 ```
 
-## 4. Dashboard flow (Phase 3)
+## 4. Dashboard flow
 
 ```
-Sidebar: [dataset ▼] [date range] [granularity: day/week/month]
+Sidebar: [dataset ▼] [date range] [granularity: day/week/month] [refresh]
+│   The date range scopes KPIs, trends, Pareto, mix and alert lists. Segments, cohorts,
+│   forecasts, anomaly scoring and the simulator always use the full history.
 │
 ├─ 1. Executive Overview
-│     KPI tiles (Net Revenue, Gross Margin %, Net Profit, Orders, AOV, Refund Rate,
-│     MoM growth) → revenue trend + forecast preview → Pareto chart → channel/category mix
+│     KPI tiles with sparklines and the change vs. the previous equal-length period
+│     (Net Revenue, Gross Margin %, Net Profit, Orders, AOV, Refund Rate) → MoM growth
+│     and a 30-day forecast preview tile → trend chart (metric selector) → Pareto
+│     cumulative-share curve → orders by local weekday × hour → channel / category /
+│     region mix
 │
 ├─ 2. Customer & Cohort Intelligence
-│     RFM segment treemap + table → per-segment action playbook → cohort retention
-│     heatmap → LTV curves by cohort
+│     RFM share-of-customers vs. share-of-revenue bars + table → per-segment action
+│     playbook + customer-list CSV download → cohort retention heatmap → LTV tiles
+│     (1/3/6/12 months) → LTV curves (each cohort in gray, size-weighted average in color)
 │
 ├─ 3. ML Forecasts & Anomaly Alerts
-│     30-day forecast with 80/95 % bands → backtest metrics vs. Seasonal Naive →
-│     anomaly timeline (CRITICAL/WARNING) → drill-down root-cause bars per alert
+│     30-day forecast with 80/95 % bands and the seasonal-naive baseline → backtest
+│     tiles, per-fold MAE, metrics table, top features → alert filters (scope,
+│     severity, metric) → CRITICAL / WARNING counts → timeline (total or a store /
+│     channel slice) → alert table → root-cause bars for the selected alert
 │
 ├─ 4. What-If Growth Simulator
-│     sliders (retention, AOV, discount, acquisition, frequency, CAC) → 6-month
-│     baseline vs. scenario chart → unit economics table (LTV, LTV:CAC, payback)
+│     sliders (retention, AOV, discount, acquisition, frequency) + CAC input (default
+│     0: not in the data) → 6-month status quo vs. scenario charts (net revenue,
+│     contribution) → totals and unit economics (LTV, LTV:CAC, payback)
 │
 └─ 5. Company Data Upload & Quality Audit
-      upload CSV/XLSX/Parquet → preview + auto-detected mapping (editable) →
-      run pipeline → audit report (pass rate, reason table, quarantine sample,
-      downloadable JSON/MD) → dataset appears in the sidebar selector
+      upload CSV / XLSX / Parquet → dataset key, display name, business type,
+      currency, timezone, day-first → preview + auto-detected mapping (editable; a
+      changed source column is pinned explicitly) → validate and load → result
+      (status, pass rate, row reconciliation, reason chart, quarantine sample,
+      JSON / Markdown downloads) → dataset appears in the sidebar selector →
+      run history with each run's audit report
 ```
 
 ## 5. Error handling contract

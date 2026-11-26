@@ -117,18 +117,50 @@ number (`source_row`, excluding the header), all issues and the raw record. The 
 report is designed for a non-technical reader: a headline pass rate, a reason table
 sorted by count, the column mapping table and a sample of rejected rows.
 
-## 7. Dashboard design (Phase 3)
+## 7. Dashboard design
 
-- **Layout**: wide layout, sidebar for dataset and date-range selection, 5 tabs.
-- **Visual language**: one accent color per semantic role (revenue, profit, risk). KPI
-  tiles show the value, the delta vs. the previous period and a sparkline.
-  CRITICAL/WARNING use consistent red/amber.
-- **Tabs**: Executive Overview · Customer & Cohort Intelligence · ML Forecasts & Anomaly
-  Alerts · What-If Growth Simulator · Company Data Upload & Quality Audit.
-- **Performance**: query results cached per `(dataset, filters, warehouse mtime)`.
-  Model training is cached per dataset fingerprint.
-- **Empty and error states**: every tab renders a helpful message when there is no data,
-  never a stack trace.
+- **Layout.** Wide layout. The sidebar holds the dataset, a date range and the trend
+  granularity. There are 5 tabs.
+- **Tabs.** Executive Overview · Customer & Cohort Intelligence · ML Forecasts &
+  Anomaly Alerts · What-If Growth Simulator · Company Data Upload & Quality Audit.
+- **Color is assigned by role, not by taste.** `dashboard/palette.py`:
+  - Categorical series use a fixed, CVD-validated slot order: blue, orange, aqua,
+    amber. Light and dark mode each use their own validated steps of the same hues;
+    validation covered lightness band, chroma, protan/deutan separation and contrast,
+    against white and Streamlit's dark surface.
+  - Magnitude uses one blue ramp. Its low end recedes toward the surface in each mode.
+  - Red and amber are reserved for CRITICAL and WARNING, always paired with an icon and
+    a label. The app's accent is therefore set to blue: Streamlit's default red accent
+    would make a selected "WARNING" chip look critical.
+- **Chart grammar** (`dashboard/charts.py`):
+  - **No dual axes.** Pareto is a cumulative-share curve with an 80 % line, not bars
+    plus a second axis. What-if revenue and contribution get two charts.
+  - Ranked bars use one hue, and the tail is folded into "Other".
+  - **Emphasis over rainbow:** LTV shows every cohort in gray and the size-weighted
+    average in color. Anomaly timelines draw the metric in gray and the alerts in status
+    colors.
+  - The forecast draws the 80 / 95 % bands, a dashed projection and the seasonal-naive
+    baseline.
+  - Every chart has a "Table:" expander, so no value is reachable only by hovering.
+- **Deviation from the first sketch.** RFM segments are shown as
+  share-of-customers vs. share-of-revenue bars, not a treemap. The bars put the
+  decision-relevant comparison on one axis, e.g. in the cafe demo, "At Risk = 23 % of
+  customers but 35 % of revenue".
+- **KPI tiles.** Each tile shows a value, a sparkline at the selected granularity and
+  the change vs. the previous equal-length period. The change is shown only when that
+  period lies inside the data. Rates show the change in percentage points.
+- **Performance.**
+  - Tabs render lazily (`st.tabs(on_change="rerun")`), so only the open tab computes.
+  - Loaders are cached on `(warehouse path, warehouse mtime, dataset)`.
+  - Measured cold costs per dataset: forecast backtest about 1.3 s, anomaly scoring
+    2.5–6 s. Warm tab switches take under 1 s.
+- **Empty and error states.**
+  - With no data, tabs 1–4 show a "load demo data / upload" call to action, with a
+    one-click demo loader.
+  - Each tab runs inside an error boundary that logs the traceback and shows a short
+    message instead of a stack trace.
+  - Analyses that need more history (forecast, simulator) explain why they are
+    unavailable for small uploads.
 
 ## 8. Demo data design (deterministic, seed = 42)
 

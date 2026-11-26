@@ -59,9 +59,17 @@ src/bizpulse/
 │   └── maintenance.py     # storage stats + compaction (file stays within budget)
 ├── pipeline.py            # orchestration + run tracking (meta_pipeline_runs)
 ├── demo/                  # deterministic synthetic generator (seed=42)
-├── analytics/             # Phase 2: kpis · rfm · cohorts
-├── ml/                    # Phase 2: forecasting · anomaly · whatif
-├── dashboard/             # Phase 3: Streamlit app
+├── analytics/             # data · kpis · rfm · cohorts · timeofday
+├── ml/                    # forecasting · anomaly · whatif
+├── reporting.py           # headless decision report as JSON / text (`bizpulse report`)
+├── smoke.py               # end-to-end self-test (`bizpulse smoke`, docker-smoke)
+├── dashboard/             # Streamlit + Plotly app
+│   ├── app.py             # entry point: sidebar filters, 5 lazily rendered tabs
+│   ├── state.py           # cached, short-lived read-only warehouse access
+│   ├── charts.py          # pure Plotly figure builders (no Streamlit)
+│   ├── palette.py         # validated chart colors per light / dark mode
+│   ├── ingest.py          # upload staging, mapping preview, ingest (no Streamlit)
+│   └── views/             # one module per tab
 └── cli.py                 # `bizpulse` entry point
 ```
 
@@ -116,7 +124,31 @@ data/
 | Static FX table | Reproducible results offline. Rates are configuration, not live data. |
 | Line-item grain | `order_id` is separate from `transaction_id`, so Order Count/AOV are exact while category/product analytics keep full detail. |
 
-## 6. Non-functional properties
+## 6. Runtime & deployment
+
+- **CLI** (`bizpulse`): data commands (`generate-demo`, `run-pipeline`, `runs`),
+  analysis commands (`report`, `forecast`, `whatif`), `smoke` and `dashboard`.
+- **Dashboard.** Streamlit runs one script per browser session, and only the open tab
+  executes. Every warehouse read opens a short-lived read-only connection, because
+  compaction replaces the file. Results are cached per
+  `(warehouse path, warehouse mtime, dataset)`, so a pipeline run or a compaction
+  invalidates them automatically.
+- **Uploads.** An upload goes through the same `run_pipeline()` as the CLI, followed by a
+  compaction. The staged file is deleted afterwards.
+- **Container.** The image has two stages:
+  - The **builder** stage runs `uv sync --frozen --no-dev --no-editable` into
+    `/app/.venv`.
+  - The **runtime** stage is `python:3.12-slim` plus `libgomp1` (needed by LightGBM),
+    running as user `bizpulse` (uid/gid 10001, home `/app`).
+  - The venv is root-owned and read-only. Only `/app/data` is writable.
+  - The deterministic demo warehouse is built into the image at build time, so the
+    dashboard has data on first start. `--demo-if-empty` rebuilds it if an empty volume
+    is mounted over `/app/data`.
+  - `HEALTHCHECK` polls `/_stcore/health`.
+  - There is no `ENTRYPOINT`, so `docker run IMAGE bizpulse <command>` runs any CLI
+    command.
+
+## 7. Non-functional properties
 
 - **Deterministic**: demo data, keys, reports (except timestamps) and models are seeded.
 - **Idempotent**: re-running the same file is `skipped`. Re-loading the same rows under a

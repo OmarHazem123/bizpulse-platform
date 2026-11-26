@@ -7,6 +7,8 @@ uv run python tasks.py test                      # full suite
 uv run python tasks.py test -m "not slow"        # fast inner loop
 uv run python tasks.py test --cov --cov-report=term-missing
 uv run python tasks.py check                     # every static gate
+uv run bizpulse smoke                            # end-to-end self-test (~18 s)
+uv run python tasks.py docker-smoke              # build the image and verify it (Docker)
 ```
 
 `make test ARGS="-k mapping"` works where `make` exists.
@@ -18,6 +20,10 @@ uv run python tasks.py check                     # every static gate
 | Unit | `tests/unit/` | pure functions: parsing, mapping, hashing, contract rules, KPI math |
 | Component | `tests/component/` | a module with real I/O: readers on real files, loader on a temp DuckDB |
 | Integration | `tests/integration/` (`@pytest.mark.integration`) | generator → pipeline → warehouse → reports, end to end |
+| CLI | `tests/integration/test_cli.py` | every command: `--help` lists them all, `report` text + JSON, `forecast` CSV (LF), `whatif` bounds (exit 2), `smoke`, `dashboard` launch arguments |
+| Dashboard | `tests/integration/test_dashboard_app.py` (`streamlit.testing.v1.AppTest`) | every tab × every demo dataset renders with no exception and no error box; filters and simulator levers; empty-warehouse call to action; the full upload flow (upload → mapping preview → load → audit result → new dataset in the sidebar → every tab copes with a 2-row dataset) |
+| Dashboard parts | `tests/unit/test_dashboard_parts.py` | palette roles, chart builders (bands, status markers, folding), upload helpers (safe file names, staging cleanup, mapping pins, config validation) |
+| Container | `tasks.py docker-smoke` | uid 10001, `bizpulse --version`, `bizpulse smoke` inside the image, HEALTHCHECK reaches `healthy`, dashboard answers on the host |
 | Tooling | `tests/unit/test_tasks.py` | the gates themselves (eol, hygiene and Makefile parity detect violations) |
 
 ## 3. Ground-truth testing with the demo manifest
@@ -82,7 +88,30 @@ reported as a finding. Thresholds are never tuned to make it pass.
   baseline month equals the trailing 3-month actual average within 15 %.
 - **Determinism**: two forecast runs give identical numbers.
 
-## 7. Conventions
+## 7. End-to-end smoke test (Phase 3)
+
+`bizpulse smoke` runs every layer on demo data at scale 0.1, inside an isolated temporary
+directory. It never touches `BIZPULSE_DATA_DIR`. It checks:
+
+- **Load:** all three formats load, and the quarantine count equals the manifest's dirty
+  rows exactly.
+- **Idempotency:** an identical re-run is `skipped`.
+- **Compaction:** the warehouse is compacted after loading.
+- **Per dataset:**
+  - positive net revenue;
+  - exactly 30 forecast days with ordered, non-negative bands;
+  - a backtest result;
+  - anomaly monitoring at the domain's granularity;
+  - a zero-lever what-if equal to the baseline.
+
+It takes about 18 s, both locally and in the container. `tasks.py docker-smoke` runs it
+inside the image.
+
+The dashboard tests found one real bug. `cohort_analysis` crashed on NaN when a fresh
+upload covered only part of one month, so no cohort was complete yet. It is fixed, with
+a regression test.
+
+## 8. Conventions
 
 - Tests are typed (`mypy --strict` covers `tests/`).
 - Use the `tmp_path` / `settings` fixtures. Never write into the real `data/`.

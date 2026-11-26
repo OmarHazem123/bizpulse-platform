@@ -80,14 +80,38 @@ Findings and decisions:
 | 2.5 | `ml/anomaly.py` | z-score/IQR/IsolationForest, severity, root cause. Recall on injected anomalies. |
 | 2.6 | `ml/whatif.py` | 6-month simulator. Zero-change scenario equals baseline. |
 
-## Phase 3: CLI, Dashboard, Docker & README
+## Phase 3: CLI, Dashboard, Docker & README ✅
 
-| Step | Deliverable | Exit criteria |
-| --- | --- | --- |
-| 3.1 | full CLI (`smoke`, `report`, `forecast`) | `bizpulse --help` documents every command |
-| 3.2 | Streamlit + Plotly dashboard, 5 tabs | `streamlit.testing.AppTest` renders every tab without exceptions |
-| 3.3 | multi-stage `Dockerfile`, uid 10001, `HEALTHCHECK` | `tasks.py docker-smoke` passes |
-| 3.4 | `README.md` | real benchmark and backtest numbers from this machine |
+Gate: `tasks.py check` green, `tasks.py test` green (242 tests, no `xfail`, about 2.5 min) and
+`tasks.py docker-smoke` green.
+
+| Step | Deliverable | Exit criteria | Result |
+| --- | --- | --- | --- |
+| 3.1 | full CLI: `report`, `forecast`, `whatif`, `smoke`, `dashboard` (plus the Phase 1 data commands) | `bizpulse --help` documents every command | asserted by `test_help_documents_every_command` |
+| 3.2 | Streamlit + Plotly dashboard, 5 tabs | `streamlit.testing.AppTest` renders every tab without exceptions | every tab × 3 demo datasets, empty state and the upload flow are tested; screenshots reviewed in light and dark mode |
+| 3.3 | multi-stage `Dockerfile`, uid 10001, `HEALTHCHECK` | `tasks.py docker-smoke` passes | healthy about 12 s after start; image 1.11 GB (venv 659 MB, of which pyarrow 166 MB) |
+| 3.4 | `README.md` | real benchmark and backtest numbers from this machine | done |
+
+Findings and decisions:
+
+- **A real bug found by the dashboard tests.** `cohort_analysis` crashed on NaN when an
+  upload covered only part of one month, so no cohort was complete yet. It now returns
+  the empty result, with a regression test.
+- **Lazy tabs.** `st.tabs(on_change="rerun")` runs only the open tab. Cold ML costs per
+  dataset are a forecast of about 1.3 s and anomaly scoring of 2.5–6 s. They are cached
+  on `(warehouse, mtime, dataset)`.
+- **Theme.**
+  - Setting a global `theme.primaryColor` turned off Streamlit's automatic light/dark
+    switching, so the blue accent is set per mode with `theme.light` / `theme.dark`.
+  - The red default accent was replaced because it collided with the CRITICAL status
+    color.
+- **CAC defaults to 0 in the simulator and the CLI.** Acquisition cost is not in the
+  data. An invented default made the status quo's contribution negative.
+- **Container.**
+  - The demo warehouse is built into the image (about 30 MB) for an instant, deterministic
+    first start.
+  - `--demo-if-empty` covers a fresh volume mounted over `/app/data`.
+  - The venv is root-owned and read-only. Only `/app/data` belongs to uid 10001.
 
 ## Risks & mitigations
 
