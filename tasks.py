@@ -37,7 +37,13 @@ DOCKER_SMOKE_PORT = 18501
 BINARY_SUFFIXES = frozenset(
     {".xlsx", ".xls", ".parquet", ".duckdb", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf"}
 )
-CACHE_DIRS: tuple[str, ...] = (".mypy_cache", ".ruff_cache", ".pytest_cache", "htmlcov")
+CACHE_DIRS: tuple[str, ...] = (
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".pytest_tmp",
+    "htmlcov",
+)
 
 
 class TaskError(RuntimeError):

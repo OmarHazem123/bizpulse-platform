@@ -23,7 +23,6 @@ SUPPORTED_EXTENSIONS: dict[str, SourceFormat] = {
     ".tsv": "csv",
     ".xlsx": "excel",
     ".xlsm": "excel",
-    ".xls": "excel",
     ".parquet": "parquet",
     ".pq": "parquet",
 }
@@ -47,6 +46,8 @@ class RawTable:
 
 
 def detect_format(path: Path) -> SourceFormat:
+    if path.suffix.lower() == ".xls":
+        raise ReadError("legacy .xls workbooks are not supported: save the file as .xlsx")
     fmt = SUPPORTED_EXTENSIONS.get(path.suffix.lower())
     if fmt is None:
         supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))

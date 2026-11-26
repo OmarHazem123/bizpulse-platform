@@ -18,6 +18,12 @@ AS_OF = datetime(2026, 11, 26, 12, 0, 0)
 DEMO_SCALE = 0.25
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Keep pytest temp dirs inside the repo (git-ignored), off the system drive."""
+    if config.option.basetemp is None:
+        config.option.basetemp = str(config.rootpath / ".pytest_tmp")
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     resolved = Settings.from_env(tmp_path / "data")

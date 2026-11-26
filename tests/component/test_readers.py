@@ -53,6 +53,7 @@ def test_excel_and_parquet_roundtrip(tmp_path: Path) -> None:
     ("name", "content", "message"),
     [
         ("x.json", "{}", "unsupported file type"),
+        ("legacy.xls", "", "save the file as .xlsx"),
         ("x.csv", "", "empty"),
         ("x.csv", "a,a\n1,2\n", "duplicate column"),
     ],

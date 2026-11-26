@@ -48,7 +48,7 @@ also quarantines the row.
 
 | ID | Requirement |
 | --- | --- |
-| TR-ING-01 | Read `.csv`/`.txt` (delimiter sniffed among `, ; \t \|`, UTF-8 with BOM fallback to latin-1), `.xlsx`/`.xls` (first sheet or configured sheet), `.parquet`. |
+| TR-ING-01 | Read `.csv`/`.txt` (delimiter sniffed among `, ; \t \|`, UTF-8 with BOM fallback to latin-1), `.xlsx`/`.xlsm` (first sheet or configured sheet), `.parquet`/`.pq`. Legacy `.xls` is rejected with a "save as .xlsx" message. |
 | TR-ING-02 | Column mapping from YAML/JSON (`MappingConfig`). Unmapped canonical fields are auto-detected in this order: header synonyms, then fuzzy match (ratio ≥ 0.88), then content-based date detection. |
 | TR-ING-03 | One source column maps to at most one canonical field. Ties are reported as ambiguous and left unmapped. |
 | TR-ING-04 | Composite keys: `composite_keys.transaction_id: [col_a, col_b]` joins columns with `-`. |

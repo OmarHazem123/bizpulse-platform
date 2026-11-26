@@ -8,6 +8,8 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+import duckdb
+
 from bizpulse import __version__
 from bizpulse.config import Settings
 from bizpulse.demo.generator import DEFAULT_SEED, SIMULATORS, generate_demo_data
@@ -77,8 +79,12 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
     # after every run that changed data (about a second; keeps the 50 MB budget).
     changed = any(r.report.rows.inserted or r.report.rows.updated for r in results)
     if changed and settings.warehouse_path.exists():
-        before, after = compact(settings.warehouse_path)
-        print(f"warehouse compacted: {before / 1048576:.1f} MB -> {after / 1048576:.1f} MB")
+        try:
+            before, after = compact(settings.warehouse_path)
+        except (OSError, duckdb.Error) as exc:  # e.g. another process holds a Windows lock
+            print(f"warning: warehouse not compacted ({exc}); data is intact", file=sys.stderr)
+        else:
+            print(f"warehouse compacted: {before / 1048576:.1f} MB -> {after / 1048576:.1f} MB")
     return 0 if all(r.ok for r in results) else 1
 
 
