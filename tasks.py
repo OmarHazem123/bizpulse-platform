@@ -368,10 +368,7 @@ def cmd_run_pipeline(args: list[str]) -> None:
 
 
 def cmd_dashboard(args: list[str]) -> None:
-    app = ROOT / "src" / "bizpulse" / "dashboard" / "app.py"
-    if not app.exists():
-        raise TaskError("dashboard not implemented yet (Phase 3)")
-    run([PY, "-m", "streamlit", "run", str(app), *args])
+    run([PY, "-m", "bizpulse.cli", "dashboard", *args])
 
 
 def _docker() -> str:

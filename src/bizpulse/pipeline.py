@@ -10,6 +10,7 @@ import json
 import time
 import uuid
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ import pandas as pd
 
 from bizpulse import __version__
 from bizpulse.config import DEMO_FILES, Settings
+from bizpulse.demo.generator import DEFAULT_SEED, generate_demo_data
 from bizpulse.ingestion.fx import FxTable
 from bizpulse.ingestion.hashing import sha256_file
 from bizpulse.ingestion.mapping import MappingConfig, MappingError, resolve_mapping
@@ -35,6 +37,7 @@ from bizpulse.quality.report import (
 from bizpulse.quality.validator import QuarantinedRow, validate_batch
 from bizpulse.warehouse.connection import connect
 from bizpulse.warehouse.loader import LoadError, load_facts
+from bizpulse.warehouse.maintenance import compact
 from bizpulse.warehouse.schema import META_DATASETS, META_QUARANTINE, META_RUNS
 from bizpulse.warehouse.transform import build_fact_frame
 
@@ -329,4 +332,33 @@ def run_demo_pipelines(settings: Settings, *, force: bool = False) -> list[Pipel
                 f"demo file {file_name} not found: run `bizpulse generate-demo` first"
             )
         results.append(run_pipeline(path, MappingConfig.builtin(dataset), settings, force=force))
+    return results
+
+
+def compact_if_changed(
+    results: Sequence[PipelineResult], settings: Settings
+) -> tuple[int, int] | None:
+    """Compact the warehouse when any run inserted or updated rows.
+
+    DuckDB never shrinks files and under-reports reclaimable index blocks, so every
+    data-changing run is followed by a rewrite (about a second; keeps the size budget).
+    Returns ``(bytes_before, bytes_after)`` or ``None``. Raises ``OSError`` /
+    ``duckdb.Error`` (e.g. a Windows file lock); the data itself is intact either way.
+    """
+    changed = any(r.report.rows.inserted or r.report.rows.updated for r in results)
+    if not changed or not settings.warehouse_path.exists():
+        return None
+    return compact(settings.warehouse_path)
+
+
+def load_demo(
+    settings: Settings, *, scale: float = 1.0, seed: int = DEFAULT_SEED
+) -> list[PipelineResult]:
+    """Generate the demo datasets into ``<data>/raw``, load them and compact the warehouse."""
+    generate_demo_data(settings.raw_dir, seed=seed, scale=scale)
+    results = run_demo_pipelines(settings)
+    try:
+        compact_if_changed(results, settings)
+    except (OSError, duckdb.Error) as exc:
+        log.warning("warehouse not compacted (%s); data is intact", exc)
     return results

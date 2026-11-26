@@ -16,6 +16,7 @@ from bizpulse.ingestion.mapping import MappingConfig
 
 AS_OF = datetime(2026, 11, 26, 12, 0, 0)
 DEMO_SCALE = 0.25
+SMALL_SCALE = 0.1
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -42,6 +43,17 @@ def demo_raw(tmp_path_factory: pytest.TempPathFactory) -> Path:
     out = tmp_path_factory.mktemp("demo") / "raw"
     generate_demo_data(out, seed=42, scale=DEMO_SCALE)
     return out
+
+
+@pytest.fixture(scope="session")
+def demo_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
+    """A small, fully loaded demo warehouse (all three datasets), shared read-only."""
+    from bizpulse.pipeline import load_demo
+
+    resolved = Settings.from_env(tmp_path_factory.mktemp("demo_wh") / "data")
+    resolved.ensure_dirs()
+    load_demo(resolved, scale=SMALL_SCALE)
+    return resolved
 
 
 @pytest.fixture
