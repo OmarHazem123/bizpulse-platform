@@ -45,7 +45,33 @@ Findings and decisions made during the build:
 | 1.11 | `cli.py` (minimal) | `generate-demo`, `run-pipeline`, `runs`. |
 | 1.12 | tests | unit tests per module. Integration test: quarantine set == manifest. Idempotency (rerun → 0/0/N, mutate one row → 1 updated). |
 
-## Phase 2: Analytics & ML
+## Phase 2: Analytics & ML ✅
+
+Gate: `tasks.py check` green, with 205 tests passing plus 1 documented `xfail`, in about 90 s.
+
+Measured on the full-scale demo data (backtests: 6 × 30-day `TimeSeriesSplit` folds):
+
+| Dataset | Model MAE | Seasonal-naive MAE | Ratio | 80 % coverage (LOFO) | 95 % coverage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ecommerce (USD) | 876 | 922 | **0.95** | 73.9 % | 91.1 % |
+| retail_fb (EUR) | 85.7 | 104.5 | **0.82** | 71.7 % | 89.4 % |
+| saas (USD) | 5,763 | 7,835 | 0.74 | 72.8 % | 90.0 % |
+
+Findings and decisions:
+
+- **Pre-registered forecast criteria passed on the first run.** No tuning was done.
+  The intervals are slightly narrow (about 72–74 % vs. the nominal 80 %).
+- **The anomaly rule needed amendment A1.** The pre-registered ratio scoring missed every
+  drop. The adopted two-tailed rule reaches 6 of 7 daily anomalies, and all three runs
+  are recorded in TECHNICAL-REQUIREMENTS §7.1. Root causes rank the manifest slice first.
+  `riverside_closure` remains a known miss: per-segment monitoring is future work.
+- **Open:** subscription billing calendars produce false alarms. 79 of 126 saas daily
+  alerts fall on days 29–31 or day 1. Fixed `contamination=0.02` in IsolationForest can
+  upgrade marginal z-flags to CRITICAL on quiet data.
+- **The what-if baseline reproduces trailing actuals exactly**, and zero levers give the
+  baseline exactly. retail_fb carries anonymous guest revenue (~59 %) as its own stream.
+- **Time of day:** retail_fb peaks at 8:00 and 13:00 local time (Europe/Berlin), while the
+  UTC storage would suggest 6:00 and 11:00.
 
 | Step | Module | Exit criteria |
 | --- | --- | --- |
