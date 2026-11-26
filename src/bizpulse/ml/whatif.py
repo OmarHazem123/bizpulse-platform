@@ -72,7 +72,9 @@ class Levers:
             (-0.5 <= self.frequency_pct <= 1.0, "frequency_pct must be within [-0.5, 1.0]"),
             (self.cac >= 0, "cac must be >= 0"),
             (
-                0.0 <= baseline.retention + self.retention_pp <= MAX_RETENTION,
+                0.0
+                <= baseline.retention + self.retention_pp
+                <= max(MAX_RETENTION, baseline.retention),
                 f"resulting retention must be within [0, {MAX_RETENTION}]",
             ),
             (
@@ -122,7 +124,9 @@ def compute_baseline(tx: pd.DataFrame, trailing: int = TRAILING_MONTHS) -> Basel
         months=tuple(str(p)[:7] for p in complete.index),
         active_customers=active,
         new_customers=new,
-        retention=min(MAX_RETENTION, max(0.0, 1.0 - _safe(new, active))),
+        # Unclamped so the zero-lever projection is an exact steady state; the 0.99 cap
+        # applies only to the customer-lifetime calculation.
+        retention=min(1.0, max(0.0, 1.0 - _safe(new, active))),
         orders_per_customer=_safe(orders / n, active),
         aov_gross=_safe(gross, orders),
         discount_rate=_safe(discounts, gross),
