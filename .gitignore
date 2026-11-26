@@ -30,6 +30,9 @@ htmlcov/
 !.env.example
 .streamlit/secrets.toml
 
+# --- Local agent session notes (contain local paths; never committed) ----
+.claude/
+
 # --- Editors / OS -------------------------------------------------------
 .idea/
 .vscode/
