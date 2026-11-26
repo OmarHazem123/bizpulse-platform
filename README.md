@@ -14,6 +14,15 @@ growth, finance and data people actually ask:
 It works for any vertical through column mapping. Three demo businesses ship with it:
 an e-commerce shop, a SaaS company and a cafe chain.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+  <img src="docs/images/overview-light.png" alt="BizPulse Executive Overview for the demo e-commerce shop: ten KPI tiles with sparklines (gross and net revenue, gross margin, net profit, orders, AOV, refund rate, MoM and WoW growth, 30-day forecast) above the weekly net revenue and net profit trend">
+</picture>
+
+*The Executive Overview on the bundled demo e-commerce data. Every screenshot in this
+README is the real dashboard running on that data, and this one follows your GitHub
+light or dark theme.*
+
 | Layer | What it does |
 | --- | --- |
 | **Data engineering** | Multi-format ingestion with column auto-detection; currency / date / type normalization; a Pydantic data contract that quarantines bad rows with exact reasons; idempotent SHA-256-keyed loads; a DuckDB star schema with run lineage; JSON + Markdown data-quality audit reports. |
@@ -144,11 +153,15 @@ How a run handles bad data:
    - Pareto 80/20 by product or category.
    - Orders by local weekday and hour, and channel/category/region mix.
    - A downloadable executive summary.
+
+   ![Pareto curve showing 26 of 120 products generate 80 % of net revenue, next to an orders-by-weekday-and-hour heatmap that peaks in the evening](docs/images/overview-pareto.png)
 2. **Customer & Cohort Intelligence.**
    - RFM segments, comparing share of customers with share of revenue.
    - An action playbook per segment, plus a customer-list CSV.
    - A cohort retention heatmap.
    - LTV curves.
+
+   ![RFM segment bars comparing share of customers with share of net revenue, the Champions action playbook, and the monthly cohort retention heatmap](docs/images/customers.png)
 3. **ML Forecasts & Anomaly Alerts.**
    - The forecast with 80/95 % intervals and the seasonal-naive baseline.
    - MAE / RMSE / MAPE / sMAPE vs. the baseline, per-fold errors and top features.
@@ -156,15 +169,25 @@ How a run handles bad data:
    - A **severity-ranked incident feed**. Alerts on adjacent days are grouped, so a broad
      outage reads as one line, not twenty.
    - An incident drill-down with root-cause bars.
+
+   ![30-day LightGBM forecast with 80 and 95 % intervals against the seasonal-naive baseline, per-fold backtest errors, overall MAE, RMSE, MAPE and sMAPE, and top model features](docs/images/ml-forecast.png)
+
+   ![KPI anomaly alerts: severity, metric, store and channel filters, incident counts, the net revenue timeline with CRITICAL and WARNING markers, and the severity-ranked incident feed](docs/images/ml-anomalies.png)
 4. **What-If Growth Simulator.**
    - Retention, AOV, discount, acquisition and frequency levers, plus a CAC input.
    - Status quo vs. scenario for net revenue and contribution.
    - Unit economics: LTV, LTV:CAC and payback.
+
+   ![What-if simulator with retention +3 pp, AOV +5 % and new customers +20 % at a $40 CAC: 6-month net revenue +29.2 %, contribution +60.7 %, LTV:CAC 2.02x, with status quo vs. scenario charts and unit economics](docs/images/whatif.png)
+
+   *The scenario shown: retention +3 pp, AOV +5 %, new customers +20 %, CAC $40.*
 5. **Company Data Upload & Quality Audit.**
    - Upload, mapping editor, validation and load.
    - The audit report and the full quarantined-rows table, with JSON/Markdown/CSV
      downloads.
    - Run history.
+
+   ![Upload panel, the pipeline run history for the three demo datasets, and quarantined rows with reason codes such as order_date.unparseable, unit_price.missing and row.duplicate](docs/images/upload-audit.png)
 
 How the dashboard behaves:
 
