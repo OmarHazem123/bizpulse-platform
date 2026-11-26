@@ -153,7 +153,8 @@ sorted by count, the column mapping table and a sample of rejected rows.
   - Tabs render lazily (`st.tabs(on_change="rerun")`), so only the open tab computes.
   - Loaders are cached on `(warehouse path, warehouse mtime, dataset)`.
   - Measured cold costs per dataset: forecast backtest about 1.3 s, anomaly scoring
-    2.5–6 s. Warm tab switches take under 1 s.
+    2.5–6 s. Measured tab renders: 0.1–2.5 s for the BI tabs and up to
+    4.7 s the first time the ML tab opens.
 - **Empty and error states.**
   - With no data, tabs 1–4 show a "load demo data / upload" call to action, with a
     one-click demo loader.

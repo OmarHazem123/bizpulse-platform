@@ -126,7 +126,7 @@ How the dashboard behaves:
 ## Measured results
 
 The data is the full-scale demo data (seed 42, 2025-05-01 → 2026-10-31). Timings were
-measured on a Windows 11 laptop with Python 3.12.
+measured on this Windows 11 machine with Python 3.12.
 
 **Forecasting.** 6 rolling 30-day `TimeSeriesSplit` folds; criteria registered before
 the first run, no tuning:
@@ -185,6 +185,8 @@ the 50 MB budget.
 
 - The image is 1.11 GB, of which the Python environment is 659 MB and pyarrow alone 166 MB.
 - It reports healthy about 12 s after start.
+- With an empty volume mounted over `/app/data` it rebuilds the demo data first and
+  reports healthy after about 44 s.
 - `tasks.py docker-smoke` finishes in about 55 s with a warm build cache, or 3–4 min
   cold.
 
