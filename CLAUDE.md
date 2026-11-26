@@ -14,7 +14,9 @@ Keep this section current at every phase boundary.
 | 0 | Repo foundation: git, LF, uv, `tasks.py` + Makefile, gates, LICENSE, specs | done |
 | 1 | Ingestion, data contracts, quarantine, DuckDB star schema, demo generator | done |
 | 2 | Analytics (KPIs, Pareto, RFM, cohorts / LTV) and ML (forecast, anomalies, what-if), incl. anomaly amendments A1 + A2 | done |
-| 3 | Full CLI, 5-tab Streamlit dashboard, non-root Docker image, README | built, gated and committed; **awaiting the user's phase-boundary review** |
+| 3 | Full CLI, 5-tab Streamlit dashboard, non-root Docker image, README | done; approved by the user on 2026-11-26 |
+
+All phases are complete. Any new work starts only when the user asks for it.
 
 The last verified gate results:
 - `tasks.py check`: all 7 gates pass.
@@ -197,6 +199,14 @@ Other top-level files:
 6. **Transparency.** Every post-hoc refinement is documented, with every run recorded in
    TECHNICAL-REQUIREMENTS §7.1. Severity agreement (3/7) is reported honestly, never
    tuned away.
+7. **Phase 3 defaults** (approved at the Phase 3 review on 2026-11-26).
+   - The demo data is baked into the Docker image. `--demo-if-empty` bootstraps an
+     empty volume.
+   - Dashboard uploads persist into the shared warehouse.
+   - What-if CAC defaults to 0.
+   - RFM is shown as share-of-customers vs. share-of-revenue bars, not a treemap.
+   - The accent color is blue in each mode, set with `theme.light` / `theme.dark`, so
+     red stays reserved for CRITICAL.
 
 Other standing decisions:
 - No declared foreign keys; integrity is asserted in tests.
