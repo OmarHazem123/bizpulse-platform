@@ -65,6 +65,9 @@ Findings and decisions:
   drop. The adopted two-tailed rule reaches 6 of 7 daily anomalies, and all three runs
   are recorded in TECHNICAL-REQUIREMENTS §7.1. Root causes rank the manifest slice first.
   `riverside_closure` remains a known miss: per-segment monitoring is future work.
+  The pre-registered recall criterion is therefore **not met**. Severity agreement with
+  the manifest is 2/6. Severity is retrospective, because IsolationForest is fit on
+  the whole period.
 - **Open:** subscription billing calendars produce false alarms. 79 of 126 saas daily
   alerts fall on days 29–31 or day 1. Fixed `contamination=0.02` in IsolationForest can
   upgrade marginal z-flags to CRITICAL on quiet data.

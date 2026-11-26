@@ -103,6 +103,21 @@ def test_scores_use_trailing_windows_only() -> None:
     assert bool(changed["z_flag"].iloc[90])
 
 
+def test_point_in_time_flags_are_stable_when_data_is_appended() -> None:
+    # z / IQR flags use trailing windows only, so they never change when later data
+    # arrives. Severity is NOT pinned: IsolationForest is fit on the whole period
+    # (retrospective by design, see TECHNICAL-REQUIREMENTS section 7.1).
+    full = synthetic_tx(days=150, drop_day=120)
+    cut = pd.Timestamp("2026-01-05") + pd.Timedelta(130, unit="D")
+    early = detect_anomalies(full.loc[full["order_ts"] < cut]).scores
+    later = detect_anomalies(full).scores
+    for metric in ("net_revenue", "orders"):
+        for column in ("z", "z_flag", "iqr_flag"):
+            pd.testing.assert_series_equal(
+                early[(metric, column)], later[(metric, column)].loc[early.index]
+            )
+
+
 def test_warmup_and_volume_guard() -> None:
     report = detect_anomalies(synthetic_tx(days=40))
     scores = report.scores

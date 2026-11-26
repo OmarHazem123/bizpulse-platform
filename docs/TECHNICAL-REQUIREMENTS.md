@@ -142,7 +142,7 @@ and **R** the refunded rows. Cancelled rows are stored but excluded from every K
 | TR-ML-01 | Daily net-revenue forecast, 30-day horizon, recursive LightGBM on lag/rolling/calendar features vs. a Seasonal-Naive (7-day) baseline. |
 | TR-ML-02 | Backtest with `TimeSeriesSplit` (fixed 30-day test folds). Features at time *t* use data `< t` only. Multi-step predictions are recursive, never fed actuals. |
 | TR-ML-03 | Metrics MAE, RMSE, MAPE (non-zero actuals), sMAPE for model and baseline. 80 %/95 % intervals from empirical out-of-fold residual quantiles per horizon step. |
-| TR-ML-04 | Anomalies on daily KPIs (net revenue, orders, AOV, refund rate). The rules are pre-registered in §7.1 below. Root cause ranks category / channel / region / customer-type slices by their deviation from their own baseline. |
+| TR-ML-04 | Anomalies on daily KPIs (net revenue, orders, AOV, refund rate). The rules are pre-registered in §7.1 below. Root cause ranks category / channel / region / **segment** slices by their deviation from their own baseline. Segment = customer type: new, returning or anonymous. |
 | TR-ML-05 | What-if: 6-month projection from a trailing baseline with levers for retention, AOV, discount, new-customer volume and order frequency. Outputs revenue, gross profit, contribution, customers, LTV, LTV:CAC and payback. |
 
 ### 7.1 Anomaly rules (pre-registered before running on demo data)
@@ -156,6 +156,7 @@ and **R** the refunded rows. Cancelled rows are stored but excluded from every K
 | Severity | **CRITICAL**: `|z| ≥ 6`, or (≥ 2 methods agree **and** `|dev| ≥ 30 %`). **WARNING**: any other z-score/IQR flag. |
 | Volume guard | AOV and refund rate are only scored on days with ≥ 20 orders and ≥ 25 % of the trailing 28-day median daily order count (no look-ahead). |
 | Warm-up | A metric is scored only once ≥ 28 days of deviation history exist. |
+| Temporal scope | z-score and IQR flags are **point-in-time**: they use trailing windows only and are tested to be unchanged by later data. IsolationForest is fit on the whole analysed period, so **severity is retrospective**: appending new data can change the severity of an older alert, but never whether it was flagged. Fitting it on an expanding window is an open decision. |
 
 **Amendment A1 (2026-11-26, post-hoc, with all runs recorded).**
 

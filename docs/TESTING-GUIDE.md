@@ -71,6 +71,11 @@ reported as a finding. Thresholds are never tuned to make it pass.
   its metric inside its window. `checkout_outage` must be `CRITICAL`. Agreement with the
   other expected severities is reported, not asserted. Root cause for slice-specific
   anomalies ranks the manifest slice first (Riverside, social, Apparel).
+  **Result: NOT MET.** The pre-registered rule reached 4/7. The post-hoc amendment A1
+  (TECHNICAL-REQUIREMENTS §7.1) reaches 6/7. `riverside_closure` is a documented miss,
+  marked `xfail(strict=True)`. All detected root causes rank the manifest slice first.
+  Severity agreement is 2/6 (outage and viral spike match; apparel, POS and BOGO came out
+  CRITICAL instead of WARNING; the enterprise deal came out WARNING instead of CRITICAL).
 - **What-if identity**: a zero-lever scenario reproduces the baseline exactly. The
   baseline month equals the trailing 3-month actual average within 15 %.
 - **Determinism**: two forecast runs give identical numbers.
